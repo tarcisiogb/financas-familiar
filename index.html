@@ -327,6 +327,7 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
   <!-- ===== ABA: IMPORTAR ===== -->
   <div id="sec-importar" class="sec">
     <div id="importarWrap"></div>
+    <div id="logImportacoesWrap"></div>
   </div>
 
   <!-- ===== ABA: LANÇAMENTOS ===== -->
@@ -638,6 +639,10 @@ var LANCAMENTOS_VISUALIZACAO = 'lista';
 var FILTRO_MULTI_CAMPO = null;
 var FILTRO_MULTI_TEMP = [];
 var LANCAMENTOS_ULTIMO_DOC = null;
+var LANCAMENTOS_TAMANHO_PAGINA = 150;
+var LANCAMENTOS_RAW_ACUMULADO = [];
+var LANCAMENTOS_TEM_MAIS = false;
+var LANCAMENTOS_CARREGANDO = false;
 var _dataModalContexto = null;
 
 /* ==================== INIT ==================== */
@@ -667,6 +672,7 @@ function mudarTab(nome) {
   if (nome === 'importar' && !IMPORT_STATE.iniciado) {
     IMPORT_STATE.iniciado = true;
     renderImportarTab();
+    carregarLogImportacoes();
   }
   if (nome === 'fluxo' && !FLUXO_STATE.iniciado) {
     FLUXO_STATE.iniciado = true;
@@ -1228,10 +1234,30 @@ window.mudarVisualizacaoLancamentos = mudarVisualizacaoLancamentos;
 function renderResultadoLancamentos(itens) {
   if (LANCAMENTOS_VISUALIZACAO === 'planilha') renderPlanilhaLancamentos(itens);
   else renderListaLancamentos(itens);
+  if (LANCAMENTOS_TEM_MAIS) {
+    var wrap = document.getElementById('listaLancamentos');
+    wrap.innerHTML += '<div class="load-more" onclick="carregarMaisLancamentos()">' + (LANCAMENTOS_CARREGANDO ? '⏳ Carregando...' : '⬇️ Carregar mais lançamentos') + '</div>';
+  }
 }
 
 /* ==================== ABA LANÇAMENTOS: CARREGAR + RENDER ==================== */
+function aplicarFiltrosClientSideLancamentos(itens) {
+  return itens.filter(function (t) {
+    if (LANCAMENTOS_FILTRO.quem.length && LANCAMENTOS_FILTRO.quem.indexOf(t.quem) === -1) return false;
+    if (LANCAMENTOS_FILTRO.conta.length && LANCAMENTOS_FILTRO.conta.indexOf(t.conta) === -1) return false;
+    if (LANCAMENTOS_FILTRO.categoria.length && LANCAMENTOS_FILTRO.categoria.indexOf(t.categoria) === -1) return false;
+    if (LANCAMENTOS_FILTRO.origem.length && LANCAMENTOS_FILTRO.origem.indexOf(t.origem) === -1) return false;
+    return true;
+  });
+}
+
 function carregarLancamentos(reset) {
+  if (reset) {
+    LANCAMENTOS_RAW_ACUMULADO = [];
+    LANCAMENTOS_ULTIMO_DOC = null;
+    LANCAMENTOS_TEM_MAIS = false;
+  }
+
   var fb = window._fb;
   var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
   var hoje = todayISO();
@@ -1258,36 +1284,51 @@ function carregarLancamentos(reset) {
     if (LANCAMENTOS_FILTRO.deISO) clauses.push(fb.where('data', '>=', LANCAMENTOS_FILTRO.deISO));
     if (LANCAMENTOS_FILTRO.ateISO) clauses.push(fb.where('data', '<=', LANCAMENTOS_FILTRO.ateISO));
   }
+  // periodo 'tudo': sem cláusula de data — busca desde o início, paginado
 
-  var args = [col].concat(clauses).concat([fb.orderBy('data', 'desc'), fb.limit(200)]);
+  var ordenacao = LANCAMENTOS_ULTIMO_DOC
+    ? [fb.orderBy('data', 'desc'), fb.startAfter(LANCAMENTOS_ULTIMO_DOC), fb.limit(LANCAMENTOS_TAMANHO_PAGINA)]
+    : [fb.orderBy('data', 'desc'), fb.limit(LANCAMENTOS_TAMANHO_PAGINA)];
+
+  var args = [col].concat(clauses).concat(ordenacao);
   var q = fb.query.apply(null, args);
 
-  document.getElementById('listaLancamentos').innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Carregando...</div>';
+  LANCAMENTOS_CARREGANDO = true;
+  if (reset) {
+    document.getElementById('listaLancamentos').innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Carregando...</div>';
+  } else {
+    renderResultadoLancamentos(aplicarFiltrosClientSideLancamentos(LANCAMENTOS_RAW_ACUMULADO));
+  }
 
   fb.getDocs(q).then(function (snap) {
-    var itens = [];
+    var novosItens = [];
+    var ultimoDoc = null;
     snap.forEach(function (d) {
       var t = d.data();
       t.id = d.id;
-      itens.push(t);
+      novosItens.push(t);
+      ultimoDoc = d;
     });
+    if (ultimoDoc) LANCAMENTOS_ULTIMO_DOC = ultimoDoc;
+    LANCAMENTOS_TEM_MAIS = novosItens.length === LANCAMENTOS_TAMANHO_PAGINA;
+    LANCAMENTOS_RAW_ACUMULADO = LANCAMENTOS_RAW_ACUMULADO.concat(novosItens);
+    LANCAMENTOS_CARREGANDO = false;
 
-    // filtros client-side (quem / conta / categoria / origem — multi-seleção)
-    itens = itens.filter(function (t) {
-      if (LANCAMENTOS_FILTRO.quem.length && LANCAMENTOS_FILTRO.quem.indexOf(t.quem) === -1) return false;
-      if (LANCAMENTOS_FILTRO.conta.length && LANCAMENTOS_FILTRO.conta.indexOf(t.conta) === -1) return false;
-      if (LANCAMENTOS_FILTRO.categoria.length && LANCAMENTOS_FILTRO.categoria.indexOf(t.categoria) === -1) return false;
-      if (LANCAMENTOS_FILTRO.origem.length && LANCAMENTOS_FILTRO.origem.indexOf(t.origem) === -1) return false;
-      return true;
-    });
-
-    TRANSACOES_CACHE = itens;
-    renderResultadoLancamentos(itens);
+    var itensFiltrados = aplicarFiltrosClientSideLancamentos(LANCAMENTOS_RAW_ACUMULADO);
+    TRANSACOES_CACHE = itensFiltrados;
+    renderResultadoLancamentos(itensFiltrados);
   }).catch(function (e) {
+    LANCAMENTOS_CARREGANDO = false;
     console.error(e);
     document.getElementById('listaLancamentos').innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>Erro ao carregar. Veja o console.</div>';
   });
 }
+
+function carregarMaisLancamentos() {
+  if (LANCAMENTOS_CARREGANDO || !LANCAMENTOS_TEM_MAIS) return;
+  carregarLancamentos(false);
+}
+window.carregarMaisLancamentos = carregarMaisLancamentos;
 
 function renderListaLancamentos(itens) {
   var wrap = document.getElementById('listaLancamentos');
@@ -2182,6 +2223,9 @@ function confirmarImportacao() {
     var inputEl = document.getElementById('inputArquivo');
     if (inputEl) inputEl.value = '';
     atualizarStatsMes();
+    var nNovos = itens.filter(function (i) { return i.status !== 'sugestao_merge'; }).length;
+    var nMesclados = itens.length - nNovos;
+    registrarLogImportacao(IMPORT_STATE.modo, IMPORT_STATE.arquivoNome, itens.length, { novos: nNovos, mesclados: nMesclados });
   }).catch(function (e) {
     console.error(e);
     alert('Erro ao gravar: ' + e.message);
@@ -2496,12 +2540,17 @@ function confirmarImportacaoHistorico() {
   }
 
   var gravados = 0;
+  var resumoParaLog = IMPORT_STATE.historicoResumo;
   function processarLote(idx) {
     if (idx >= lotes.length) {
       document.getElementById('progressoHistorico').innerHTML = '<div class="empty-state"><div class="ic">✅</div>' + gravados + ' lançamentos importados com sucesso!</div>';
       IMPORT_STATE.historicoTransacoes = null;
       IMPORT_STATE.historicoResumo = null;
       atualizarStatsMes();
+      registrarLogImportacao('historico', IMPORT_STATE.arquivoNome, gravados, {
+        somaDespesa: resumoParaLog ? resumoParaLog.somaDespesa : null,
+        somaReceita: resumoParaLog ? resumoParaLog.somaReceita : null
+      });
       return;
     }
     var batch = fb.writeBatch(fb.db);
@@ -2728,6 +2777,92 @@ function desenharChartInvest(meses, investPorMes) {
     }
   });
 }
+
+/* ==================================================================== */
+/* ==================== REGISTRO DE IMPORTAÇÕES ======================== */
+/* ==================================================================== */
+
+function registrarLogImportacao(tipo, arquivoNome, quantidade, extra) {
+  var fb = window._fb;
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'importacoes');
+  var docData = {
+    tipo: tipo,
+    arquivoNome: arquivoNome || null,
+    quantidade: quantidade,
+    registradoPor: window._userName || null,
+    criadoEm: Date.now()
+  };
+  if (extra) {
+    for (var k in extra) {
+      if (Object.prototype.hasOwnProperty.call(extra, k)) docData[k] = extra[k];
+    }
+  }
+  return fb.addDoc(col, docData).then(function () {
+    carregarLogImportacoes();
+  }).catch(function (e) {
+    console.error('Erro ao registrar log de importação:', e);
+  });
+}
+
+function fmtDataHoraLog(timestamp) {
+  var d = new Date(timestamp);
+  var dd = String(d.getDate()); if (dd.length < 2) dd = '0' + dd;
+  var mm = String(d.getMonth() + 1); if (mm.length < 2) mm = '0' + mm;
+  var hh = String(d.getHours()); if (hh.length < 2) hh = '0' + hh;
+  var mi = String(d.getMinutes()); if (mi.length < 2) mi = '0' + mi;
+  return dd + '/' + mm + '/' + d.getFullYear() + ' às ' + hh + ':' + mi;
+}
+
+function carregarLogImportacoes() {
+  var fb = window._fb;
+  var wrap = document.getElementById('logImportacoesWrap');
+  if (!wrap) return;
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'importacoes');
+  var q = fb.query(col, fb.orderBy('criadoEm', 'desc'), fb.limit(15));
+
+  fb.getDocs(q).then(function (snap) {
+    var itens = [];
+    snap.forEach(function (d) { var t = d.data(); t.id = d.id; itens.push(t); });
+    renderLogImportacoes(itens);
+  }).catch(function (e) {
+    console.error(e);
+    wrap.innerHTML = '';
+  });
+}
+
+function renderLogImportacoes(itens) {
+  var wrap = document.getElementById('logImportacoesWrap');
+  if (!wrap) return;
+  if (itens.length === 0) { wrap.innerHTML = ''; return; }
+
+  var nomesTipos = { extrato: '🏦 Extrato', fatura: '💳 Fatura', historico: '📜 Histórico' };
+
+  var html = '<div class="card">';
+  html += '<div class="card-title">📜 Últimas importações</div>';
+  html += '<div class="card-sub">Registro do que já foi trazido pra este app</div>';
+
+  for (var i = 0; i < itens.length; i++) {
+    var it = itens[i];
+    var extraTxt = '';
+    if (it.novos !== undefined || it.mesclados !== undefined) {
+      extraTxt = (it.novos || 0) + ' novos, ' + (it.mesclados || 0) + ' mesclados';
+    } else if (it.somaDespesa !== undefined && it.somaDespesa !== null) {
+      extraTxt = fmtBRL(it.somaDespesa) + ' em despesas, ' + fmtBRL(it.somaReceita || 0) + ' em receitas';
+    }
+
+    html += '<div class="rev-row" style="cursor:default;">';
+    html += '<div class="rev-top"><div class="rev-mid">';
+    html += '<div class="rev-desc">' + (nomesTipos[it.tipo] || it.tipo) + (it.arquivoNome ? ' — ' + it.arquivoNome : '') + '</div>';
+    html += '<div class="rev-meta">' + fmtDataHoraLog(it.criadoEm) + (it.registradoPor ? ' · ' + it.registradoPor : '') + (extraTxt ? ' · ' + extraTxt : '') + '</div>';
+    html += '</div>';
+    html += '<div class="lanc-valor" style="font-size:16px;">' + it.quantidade + '</div>';
+    html += '</div></div>';
+  }
+
+  html += '</div>';
+  wrap.innerHTML = html;
+}
+
 
 
 </script>
