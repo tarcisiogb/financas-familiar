@@ -27,6 +27,7 @@
 <!-- Bibliotecas para leitura de arquivos na aba Importar -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 
 <style>
 :root {
@@ -234,6 +235,9 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
 .rev-campos { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
 
 .mapeamento-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.multiselect-list { max-height:360px; overflow-y:auto; display:flex; flex-direction:column; -webkit-overflow-scrolling:touch; }
+.multiselect-item { display:flex; align-items:center; gap:10px; padding:11px 4px; font-size:14px; border-bottom:1px solid var(--border); }
+.multiselect-item input { width:19px; height:19px; flex:0 0 auto; }
 .preview-table { width:100%; border-collapse:collapse; font-size:11px; margin-top:10px; }
 .preview-table td, .preview-table th { border:1px solid var(--border); padding:5px 6px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px; }
 
@@ -327,6 +331,7 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
 
   <!-- ===== ABA: LANÇAMENTOS ===== -->
   <div id="sec-lancamentos" class="sec">
+    <div id="visualizacaoToggleRow" style="margin-bottom:10px;"></div>
     <div class="filtro-row" id="filtroPeriodoRow"></div>
     <div class="filtro-row" id="filtroExtraRow"></div>
     <div id="listaLancamentos"></div>
@@ -341,13 +346,9 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
     </div>
   </div>
 
-  <!-- ===== ABA: FLUXO (placeholder) ===== -->
+  <!-- ===== ABA: FLUXO ===== -->
   <div id="sec-fluxo" class="sec">
-    <div class="placeholder">
-      <div class="ic">📊</div>
-      <div class="tt">Fluxo de Caixa chega em breve</div>
-      <div>Entradas vs. saídas e saldo acumulado</div>
-    </div>
+    <div id="fluxoWrap"></div>
   </div>
 
   <!-- ===== ABA: RECORRENTES (placeholder) ===== -->
@@ -388,6 +389,14 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
     <button class="modal-close" onclick="fecharModal('modal-editar')">✕</button>
     <div class="modal-title">Editar lançamento</div>
     <div id="formEditarWrap"></div>
+  </div>
+</div>
+
+<!-- ===== MODAL: FILTRO MULTI-SELEÇÃO ===== -->
+<div class="modal-bg" id="modal-multiselect">
+  <div class="modal">
+    <button class="modal-close" onclick="fecharModal('modal-multiselect')">✕</button>
+    <div id="modal-multiselect-content"></div>
   </div>
 </div>
 
@@ -624,7 +633,10 @@ FORM_STATE.lancar = novoFormState();
 FORM_STATE.editar = novoFormState();
 
 var TRANSACOES_CACHE = [];
-var LANCAMENTOS_FILTRO = { periodo: 'mes', quem: null, categoria: null, conta: null, origem: null, deISO: null, ateISO: null };
+var LANCAMENTOS_FILTRO = { periodo: 'mes', quem: [], categoria: [], conta: [], origem: [], deISO: null, ateISO: null };
+var LANCAMENTOS_VISUALIZACAO = 'lista';
+var FILTRO_MULTI_CAMPO = null;
+var FILTRO_MULTI_TEMP = [];
 var LANCAMENTOS_ULTIMO_DOC = null;
 var _dataModalContexto = null;
 
@@ -632,6 +644,7 @@ var _dataModalContexto = null;
 window.onLoginOk = function () {
   atualizarStatsMes();
   renderFormLancamento('lancar');
+  renderToggleVisualizacao();
   renderFiltrosLancamentos();
   carregarLancamentos(true);
 };
@@ -654,6 +667,10 @@ function mudarTab(nome) {
   if (nome === 'importar' && !IMPORT_STATE.iniciado) {
     IMPORT_STATE.iniciado = true;
     renderImportarTab();
+  }
+  if (nome === 'fluxo' && !FLUXO_STATE.iniciado) {
+    FLUXO_STATE.iniciado = true;
+    renderFluxoTab();
   }
 }
 window.mudarTab = mudarTab;
@@ -1096,10 +1113,25 @@ function renderFiltrosLancamentos() {
     extraHtml += '<div class="filtro-chip" onclick="abrirModalData(\'filtroPersonalizadoDe\')">📅 ' + deTxt + '</div>';
     extraHtml += '<div class="filtro-chip" onclick="abrirModalData(\'filtroPersonalizadoAte\')">📅 ' + ateTxt + '</div>';
   }
-  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.quem ? ' on' : '') + '" onclick="cicloFiltroQuem()">' + (LANCAMENTOS_FILTRO.quem ? getQuemById(LANCAMENTOS_FILTRO.quem).emoji + ' ' + getQuemById(LANCAMENTOS_FILTRO.quem).nome : '👤 Quem: todos') + '</div>';
-  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.conta ? ' on' : '') + '" onclick="cicloFiltroConta()">' + (LANCAMENTOS_FILTRO.conta ? getContaById(LANCAMENTOS_FILTRO.conta).nome : '💳 Conta: todas') + '</div>';
-  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.categoria ? ' on' : '') + '" onclick="cicloFiltroCategoria()">' + (LANCAMENTOS_FILTRO.categoria ? getCategoriaById(LANCAMENTOS_FILTRO.categoria).emoji + ' ' + getCategoriaById(LANCAMENTOS_FILTRO.categoria).nome : '🏷️ Categoria: todas') + '</div>';
+  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.quem.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'quem\')">👤 ' + labelFiltroMulti('quem') + '</div>';
+  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.conta.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'conta\')">💳 ' + labelFiltroMulti('conta') + '</div>';
+  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.categoria.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'categoria\')">🏷️ ' + labelFiltroMulti('categoria') + '</div>';
+  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.origem.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'origem\')">🔖 ' + labelFiltroMulti('origem') + '</div>';
   document.getElementById('filtroExtraRow').innerHTML = extraHtml;
+}
+
+function labelFiltroMulti(campo) {
+  var arr = LANCAMENTOS_FILTRO[campo];
+  var nomes = { quem: 'Quem', conta: 'Conta', categoria: 'Categoria', origem: 'Origem' };
+  if (!arr || arr.length === 0) return nomes[campo] + ': todos';
+  if (arr.length === 1) {
+    var opcoes = opcoesParaCampo(campo);
+    for (var i = 0; i < opcoes.length; i++) {
+      if (opcoes[i].id === arr[0]) return opcoes[i].label;
+    }
+    return nomes[campo] + ': 1';
+  }
+  return nomes[campo] + ': ' + arr.length + ' selecionados';
 }
 
 function selecionarPeriodoFiltro(id) {
@@ -1109,30 +1141,94 @@ function selecionarPeriodoFiltro(id) {
 }
 window.selecionarPeriodoFiltro = selecionarPeriodoFiltro;
 
-function cicloFiltroQuem() {
-  var ids = [null].concat(QUEM_OPCOES.map(function (q) { return q.id; }));
-  var idxAtual = ids.indexOf(LANCAMENTOS_FILTRO.quem);
-  LANCAMENTOS_FILTRO.quem = ids[(idxAtual + 1) % ids.length];
+/* ---------- modal de filtro multi-seleção (reutilizável) ---------- */
+function opcoesParaCampo(campo) {
+  if (campo === 'quem') return QUEM_OPCOES.map(function (q) { return { id: q.id, label: q.emoji + ' ' + q.nome }; });
+  if (campo === 'conta') return CONTAS.map(function (c) { return { id: c.id, label: (c.tipo === 'cartao' ? '💳' : '🏦') + ' ' + c.nome }; });
+  if (campo === 'categoria') return CATEGORIAS.map(function (c) { return { id: c.id, label: c.emoji + ' ' + c.nome }; });
+  if (campo === 'origem') return [
+    { id: 'manual', label: '📝 Manual' }, { id: 'importado', label: '🏦 Importado' },
+    { id: 'mesclado', label: '🔗 Mesclado' }, { id: 'historico', label: '📜 Histórico' }
+  ];
+  return [];
+}
+
+function tituloParaCampo(campo) {
+  var t = { quem: 'Filtrar por quem', conta: 'Filtrar por conta', categoria: 'Filtrar por categoria', origem: 'Filtrar por origem' };
+  return t[campo] || 'Filtrar';
+}
+
+function abrirFiltroMulti(campo) {
+  FILTRO_MULTI_CAMPO = campo;
+  FILTRO_MULTI_TEMP = (LANCAMENTOS_FILTRO[campo] || []).slice();
+  renderModalMultiSelect();
+  abrirModal('modal-multiselect');
+}
+window.abrirFiltroMulti = abrirFiltroMulti;
+
+function renderModalMultiSelect() {
+  var opcoes = opcoesParaCampo(FILTRO_MULTI_CAMPO);
+  var html = '<div class="modal-title">' + tituloParaCampo(FILTRO_MULTI_CAMPO) + '</div>';
+  html += '<div class="btn-row" style="margin-top:0;margin-bottom:12px;">';
+  html += '<button type="button" class="pill pill-sub" onclick="marcarTodosFiltroMulti()">Marcar todos</button>';
+  html += '<button type="button" class="pill pill-sub" onclick="limparFiltroMulti()">Limpar</button>';
+  html += '</div>';
+  html += '<div class="multiselect-list">';
+  for (var i = 0; i < opcoes.length; i++) {
+    var op = opcoes[i];
+    var checked = FILTRO_MULTI_TEMP.indexOf(op.id) !== -1;
+    html += '<label class="multiselect-item"><input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="toggleFiltroMultiItem(\'' + op.id + '\', this.checked)"><span>' + op.label + '</span></label>';
+  }
+  html += '</div>';
+  html += '<div class="btn-row"><button class="btn btn-primary" onclick="aplicarFiltroMulti()">Aplicar</button></div>';
+  document.getElementById('modal-multiselect-content').innerHTML = html;
+}
+
+function toggleFiltroMultiItem(id, checked) {
+  var idx = FILTRO_MULTI_TEMP.indexOf(id);
+  if (checked && idx === -1) FILTRO_MULTI_TEMP.push(id);
+  if (!checked && idx !== -1) FILTRO_MULTI_TEMP.splice(idx, 1);
+}
+window.toggleFiltroMultiItem = toggleFiltroMultiItem;
+
+function marcarTodosFiltroMulti() {
+  FILTRO_MULTI_TEMP = opcoesParaCampo(FILTRO_MULTI_CAMPO).map(function (o) { return o.id; });
+  renderModalMultiSelect();
+}
+function limparFiltroMulti() {
+  FILTRO_MULTI_TEMP = [];
+  renderModalMultiSelect();
+}
+window.marcarTodosFiltroMulti = marcarTodosFiltroMulti;
+window.limparFiltroMulti = limparFiltroMulti;
+
+function aplicarFiltroMulti() {
+  LANCAMENTOS_FILTRO[FILTRO_MULTI_CAMPO] = FILTRO_MULTI_TEMP.slice();
+  fecharModal('modal-multiselect');
   renderFiltrosLancamentos();
   carregarLancamentos(true);
 }
-function cicloFiltroConta() {
-  var ids = [null].concat(CONTAS.map(function (c) { return c.id; }));
-  var idxAtual = ids.indexOf(LANCAMENTOS_FILTRO.conta);
-  LANCAMENTOS_FILTRO.conta = ids[(idxAtual + 1) % ids.length];
-  renderFiltrosLancamentos();
-  carregarLancamentos(true);
+window.aplicarFiltroMulti = aplicarFiltroMulti;
+
+/* ---------- alternância Lista / Planilha ---------- */
+function renderToggleVisualizacao() {
+  var html = '<div class="toggle2">';
+  html += '<button type="button" class="pill' + (LANCAMENTOS_VISUALIZACAO === 'lista' ? ' on' : '') + '" onclick="mudarVisualizacaoLancamentos(\'lista\')">📋 Lista</button>';
+  html += '<button type="button" class="pill' + (LANCAMENTOS_VISUALIZACAO === 'planilha' ? ' on' : '') + '" onclick="mudarVisualizacaoLancamentos(\'planilha\')">🧮 Planilha</button>';
+  html += '</div>';
+  document.getElementById('visualizacaoToggleRow').innerHTML = html;
 }
-function cicloFiltroCategoria() {
-  var ids = [null].concat(CATEGORIAS.map(function (c) { return c.id; }));
-  var idxAtual = ids.indexOf(LANCAMENTOS_FILTRO.categoria);
-  LANCAMENTOS_FILTRO.categoria = ids[(idxAtual + 1) % ids.length];
-  renderFiltrosLancamentos();
-  carregarLancamentos(true);
+function mudarVisualizacaoLancamentos(modo) {
+  LANCAMENTOS_VISUALIZACAO = modo;
+  renderToggleVisualizacao();
+  renderResultadoLancamentos(TRANSACOES_CACHE);
 }
-window.cicloFiltroQuem = cicloFiltroQuem;
-window.cicloFiltroConta = cicloFiltroConta;
-window.cicloFiltroCategoria = cicloFiltroCategoria;
+window.mudarVisualizacaoLancamentos = mudarVisualizacaoLancamentos;
+
+function renderResultadoLancamentos(itens) {
+  if (LANCAMENTOS_VISUALIZACAO === 'planilha') renderPlanilhaLancamentos(itens);
+  else renderListaLancamentos(itens);
+}
 
 /* ==================== ABA LANÇAMENTOS: CARREGAR + RENDER ==================== */
 function carregarLancamentos(reset) {
@@ -1163,9 +1259,7 @@ function carregarLancamentos(reset) {
     if (LANCAMENTOS_FILTRO.ateISO) clauses.push(fb.where('data', '<=', LANCAMENTOS_FILTRO.ateISO));
   }
 
-  if (LANCAMENTOS_FILTRO.conta) clauses.push(fb.where('conta', '==', LANCAMENTOS_FILTRO.conta));
-
-  var args = [col].concat(clauses).concat([fb.orderBy('data', 'desc'), fb.limit(60)]);
+  var args = [col].concat(clauses).concat([fb.orderBy('data', 'desc'), fb.limit(200)]);
   var q = fb.query.apply(null, args);
 
   document.getElementById('listaLancamentos').innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Carregando...</div>';
@@ -1178,16 +1272,17 @@ function carregarLancamentos(reset) {
       itens.push(t);
     });
 
-    // filtros client-side (quem / categoria / origem)
+    // filtros client-side (quem / conta / categoria / origem — multi-seleção)
     itens = itens.filter(function (t) {
-      if (LANCAMENTOS_FILTRO.quem && t.quem !== LANCAMENTOS_FILTRO.quem) return false;
-      if (LANCAMENTOS_FILTRO.categoria && t.categoria !== LANCAMENTOS_FILTRO.categoria) return false;
-      if (LANCAMENTOS_FILTRO.origem && t.origem !== LANCAMENTOS_FILTRO.origem) return false;
+      if (LANCAMENTOS_FILTRO.quem.length && LANCAMENTOS_FILTRO.quem.indexOf(t.quem) === -1) return false;
+      if (LANCAMENTOS_FILTRO.conta.length && LANCAMENTOS_FILTRO.conta.indexOf(t.conta) === -1) return false;
+      if (LANCAMENTOS_FILTRO.categoria.length && LANCAMENTOS_FILTRO.categoria.indexOf(t.categoria) === -1) return false;
+      if (LANCAMENTOS_FILTRO.origem.length && LANCAMENTOS_FILTRO.origem.indexOf(t.origem) === -1) return false;
       return true;
     });
 
     TRANSACOES_CACHE = itens;
-    renderListaLancamentos(itens);
+    renderResultadoLancamentos(itens);
   }).catch(function (e) {
     console.error(e);
     document.getElementById('listaLancamentos').innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>Erro ao carregar. Veja o console.</div>';
@@ -1218,6 +1313,38 @@ function renderListaLancamentos(itens) {
       html += renderLinhaLancamento(linhas[k]);
     }
   }
+  wrap.innerHTML = html;
+}
+
+function renderPlanilhaLancamentos(itens) {
+  var wrap = document.getElementById('listaLancamentos');
+  if (itens.length === 0) {
+    wrap.innerHTML = '<div class="empty-state"><div class="ic">📭</div>Nenhum lançamento encontrado neste filtro.</div>';
+    return;
+  }
+  var html = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><table class="preview-table" style="font-size:11.5px;">';
+  html += '<thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Subcat.</th><th>Quem</th><th>Conta</th><th>Grupo</th><th>Tipo</th><th>Valor</th><th>Origem</th></tr></thead><tbody>';
+  for (var i = 0; i < itens.length; i++) {
+    var t = itens[i];
+    var cat = getCategoriaById(t.categoria);
+    var conta = getContaById(t.conta);
+    var quem = getQuemById(t.quem);
+    var grupo = getGrupoById(t.grupo);
+    var corValor = t.tipo === 'despesa' ? 'var(--despesa)' : 'var(--receita)';
+    html += '<tr onclick=\'abrirEdicao(' + JSON.stringify(t).replace(/'/g, '&#39;') + ')\' style="cursor:pointer;">';
+    html += '<td>' + isoParaBR(t.data) + '</td>';
+    html += '<td>' + (t.descricao || '') + '</td>';
+    html += '<td>' + (cat ? cat.nome : '') + '</td>';
+    html += '<td>' + (t.subcategoria || '') + '</td>';
+    html += '<td>' + (quem ? quem.nome : '') + '</td>';
+    html += '<td>' + (conta ? conta.nome : '') + '</td>';
+    html += '<td>' + (grupo ? grupo.nome : '') + '</td>';
+    html += '<td>' + (t.tipo === 'despesa' ? 'Despesa' : 'Receita') + '</td>';
+    html += '<td style="text-align:right;font-weight:700;color:' + corValor + ';">' + fmtBRL(t.valor) + '</td>';
+    html += '<td>' + (t.origem || '') + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
   wrap.innerHTML = html;
 }
 
@@ -2395,6 +2522,212 @@ function confirmarImportacaoHistorico() {
   processarLote(0);
 }
 window.confirmarImportacaoHistorico = confirmarImportacaoHistorico;
+
+/* ==================================================================== */
+/* ==================== ABA FLUXO DE CAIXA ============================= */
+/* ==================================================================== */
+
+var FLUXO_STATE = { iniciado: false, periodo: '6meses' };
+
+function mesLabelCurto(anoMes) {
+  var partes = anoMes.split('-');
+  var meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  return meses[parseInt(partes[1], 10) - 1] + '/' + partes[0].substring(2);
+}
+
+function calcularRangeFluxo(periodo) {
+  var hoje = todayISO();
+  if (periodo === '3meses') return { de: addMeses(primeiroDiaMesISO(hoje), -2), ate: ultimoDiaMesISO(hoje) };
+  if (periodo === '12meses') return { de: addMeses(primeiroDiaMesISO(hoje), -11), ate: ultimoDiaMesISO(hoje) };
+  if (periodo === 'ano') return { de: hoje.substring(0, 4) + '-01-01', ate: hoje.substring(0, 4) + '-12-31' };
+  if (periodo === 'tudo') return { de: '2000-01-01', ate: '2100-01-01' };
+  return { de: addMeses(primeiroDiaMesISO(hoje), -5), ate: ultimoDiaMesISO(hoje) }; // 6meses (padrão)
+}
+
+function renderFluxoTab() {
+  var html = '';
+  html += '<div class="filtro-row" id="fluxoPeriodoRow"></div>';
+  html += '<div id="fluxoConteudo"><div class="empty-state"><div class="ic">⏳</div>Carregando...</div></div>';
+  document.getElementById('fluxoWrap').innerHTML = html;
+  renderFluxoPeriodoChips();
+  carregarFluxo();
+}
+
+function renderFluxoPeriodoChips() {
+  var periodos = [
+    { id: '3meses', nome: '3 meses' }, { id: '6meses', nome: '6 meses' },
+    { id: '12meses', nome: '12 meses' }, { id: 'ano', nome: 'Este ano' }, { id: 'tudo', nome: 'Tudo' }
+  ];
+  var html = '';
+  for (var i = 0; i < periodos.length; i++) {
+    var p = periodos[i];
+    var on = FLUXO_STATE.periodo === p.id ? ' on' : '';
+    html += '<div class="filtro-chip' + on + '" onclick="selecionarPeriodoFluxo(\'' + p.id + '\')">' + p.nome + '</div>';
+  }
+  document.getElementById('fluxoPeriodoRow').innerHTML = html;
+}
+function selecionarPeriodoFluxo(id) {
+  FLUXO_STATE.periodo = id;
+  renderFluxoPeriodoChips();
+  carregarFluxo();
+}
+window.selecionarPeriodoFluxo = selecionarPeriodoFluxo;
+
+function carregarFluxo() {
+  var fb = window._fb;
+  var range = calcularRangeFluxo(FLUXO_STATE.periodo);
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
+  var q = fb.query(col, fb.where('data', '>=', range.de), fb.where('data', '<=', range.ate), fb.orderBy('data', 'asc'));
+
+  document.getElementById('fluxoConteudo').innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Calculando (pode levar um instante em períodos longos)...</div>';
+
+  fb.getDocs(q).then(function (snap) {
+    var itens = [];
+    snap.forEach(function (d) { var t = d.data(); t.id = d.id; itens.push(t); });
+    renderFluxoConteudo(itens);
+  }).catch(function (e) {
+    console.error(e);
+    document.getElementById('fluxoConteudo').innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>Erro ao carregar: ' + e.message + '</div>';
+  });
+}
+
+function renderFluxoConteudo(itens) {
+  if (itens.length === 0) {
+    document.getElementById('fluxoConteudo').innerHTML = '<div class="empty-state"><div class="ic">📭</div>Nada neste período ainda.</div>';
+    return;
+  }
+
+  var porMes = {};
+  var porCategoria = {};
+  var investPorMes = {};
+  var totalEntradas = 0, totalSaidas = 0, totalAportes = 0, totalResgates = 0;
+  var mesesSet = {};
+
+  for (var i = 0; i < itens.length; i++) {
+    var t = itens[i];
+    var anoMes = t.data.substring(0, 7);
+    mesesSet[anoMes] = true;
+    var cat = getCategoriaById(t.categoria);
+    var isInvest = cat && cat.orcamentavel === false;
+
+    if (isInvest) {
+      if (!investPorMes[anoMes]) investPorMes[anoMes] = { aporte: 0, resgate: 0 };
+      if (t.tipo === 'despesa') { investPorMes[anoMes].aporte += t.valor; totalAportes += t.valor; }
+      else { investPorMes[anoMes].resgate += t.valor; totalResgates += t.valor; }
+      continue;
+    }
+
+    if (!porMes[anoMes]) porMes[anoMes] = { despesa: 0, receita: 0 };
+    if (t.tipo === 'despesa') {
+      porMes[anoMes].despesa += t.valor;
+      totalSaidas += t.valor;
+      porCategoria[t.categoria] = (porCategoria[t.categoria] || 0) + t.valor;
+    } else {
+      porMes[anoMes].receita += t.valor;
+      totalEntradas += t.valor;
+    }
+  }
+
+  var mesesOrdenados = Object.keys(mesesSet).sort();
+  var saldo = totalEntradas - totalSaidas;
+
+  var html = '';
+  html += '<div class="resumo-import">';
+  html += '<div class="resumo-chip"><b style="color:var(--receita);">' + fmtBRL(totalEntradas) + '</b>entradas</div>';
+  html += '<div class="resumo-chip"><b style="color:var(--despesa);">' + fmtBRL(totalSaidas) + '</b>saídas</div>';
+  html += '<div class="resumo-chip"><b style="color:' + (saldo >= 0 ? 'var(--receita)' : 'var(--despesa)') + ';">' + fmtBRL(saldo) + '</b>saldo do período</div>';
+  html += '</div>';
+
+  if (totalAportes > 0 || totalResgates > 0) {
+    html += '<div class="resumo-import">';
+    html += '<div class="resumo-chip"><b style="color:var(--purple);">' + fmtBRL(totalAportes) + '</b>aportes em investimentos</div>';
+    html += '<div class="resumo-chip"><b style="color:var(--purple);">' + fmtBRL(totalResgates) + '</b>resgates de investimentos</div>';
+    html += '</div>';
+  }
+
+  html += '<div class="card"><div class="card-title">Entradas x Saídas por mês</div><div style="position:relative;height:240px;"><canvas id="chartMensal"></canvas></div></div>';
+  html += '<div class="card"><div class="card-title">Despesas por categoria</div><div style="position:relative;height:280px;"><canvas id="chartCategorias"></canvas></div></div>';
+  if (totalAportes > 0 || totalResgates > 0) {
+    html += '<div class="card"><div class="card-title">Investimentos por mês</div><div style="position:relative;height:240px;"><canvas id="chartInvest"></canvas></div></div>';
+  }
+
+  document.getElementById('fluxoConteudo').innerHTML = html;
+
+  desenharChartMensal(mesesOrdenados, porMes);
+  desenharChartCategorias(porCategoria);
+  if (totalAportes > 0 || totalResgates > 0) desenharChartInvest(mesesOrdenados, investPorMes);
+}
+
+function desenharChartMensal(meses, porMes) {
+  var ctx = document.getElementById('chartMensal');
+  if (!ctx || typeof Chart === 'undefined') return;
+  var labels = meses.map(mesLabelCurto);
+  var despesas = meses.map(function (m) { return porMes[m] ? Math.round(porMes[m].despesa * 100) / 100 : 0; });
+  var receitas = meses.map(function (m) { return porMes[m] ? Math.round(porMes[m].receita * 100) / 100 : 0; });
+
+  if (window._chartMensal) window._chartMensal.destroy();
+  window._chartMensal = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Receitas', data: receitas, backgroundColor: '#2D6A4F' },
+        { label: 'Despesas', data: despesas, backgroundColor: '#C0392B' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
+
+function desenharChartCategorias(porCategoria) {
+  var ctx = document.getElementById('chartCategorias');
+  if (!ctx || typeof Chart === 'undefined') return;
+  var entradas = Object.keys(porCategoria).map(function (id) { return { id: id, valor: porCategoria[id] }; });
+  entradas.sort(function (a, b) { return b.valor - a.valor; });
+  var top = entradas.slice(0, 8);
+  var labels = top.map(function (e) { var c = getCategoriaById(e.id); return c ? c.emoji + ' ' + c.nome : e.id; });
+  var valores = top.map(function (e) { return Math.round(e.valor * 100) / 100; });
+
+  if (window._chartCategorias) window._chartCategorias.destroy();
+  window._chartCategorias = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labels, datasets: [{ label: 'Gasto', data: valores, backgroundColor: '#52525B' }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true } }
+    }
+  });
+}
+
+function desenharChartInvest(meses, investPorMes) {
+  var ctx = document.getElementById('chartInvest');
+  if (!ctx || typeof Chart === 'undefined') return;
+  var labels = meses.map(mesLabelCurto);
+  var aportes = meses.map(function (m) { return investPorMes[m] ? Math.round(investPorMes[m].aporte * 100) / 100 : 0; });
+  var resgates = meses.map(function (m) { return investPorMes[m] ? Math.round(investPorMes[m].resgate * 100) / 100 : 0; });
+
+  if (window._chartInvest) window._chartInvest.destroy();
+  window._chartInvest = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Aportes', data: aportes, backgroundColor: '#6B3FA0' },
+        { label: 'Resgates', data: resgates, backgroundColor: '#C4A6E0' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
 
 
 </script>
