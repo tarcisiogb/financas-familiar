@@ -465,20 +465,23 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
 <script>
 /* ==================== CONFIG / CONSTANTES ==================== */
 var CATEGORIAS = [
-  { id:'ap', nome:'AP (Moradia)', emoji:'🏠', subcategorias:['Financiamento','Diarista','Condomínio','Energia','IPTU','TV','Internet/NET','Celular','Baba','Casa Coach'] },
-  { id:'dizimo', nome:'Dízimo', emoji:'🙏', subcategorias:[] },
-  { id:'escola', nome:'Escola', emoji:'🎒', subcategorias:[] },
-  { id:'seguro', nome:'Seguro', emoji:'🛡️', subcategorias:[] },
-  { id:'alimentacao', nome:'Alimentação', emoji:'🍽️', subcategorias:[] },
-  { id:'supermercado', nome:'Supermercado', emoji:'🛒', subcategorias:[] },
-  { id:'carro', nome:'Carro', emoji:'🚗', subcategorias:['Combustível','Estacionamento','Seguro'] },
-  { id:'beleza-saude', nome:'Beleza e Saúde', emoji:'💊', subcategorias:['Vacinas','Fisioterapia','Unha','Farmácia','Academia'] },
-  { id:'transporte', nome:'Transporte', emoji:'🚕', subcategorias:[] },
-  { id:'lazer', nome:'Lazer', emoji:'🎉', subcategorias:['Restaurante','Cinema','Futebol','Poker','Streaming','Clube','Viagens'] },
-  { id:'presentes', nome:'Presentes', emoji:'🎁', subcategorias:['Aniversariantes'] },
-  { id:'compra-ap', nome:'Compra AP', emoji:'🛋️', subcategorias:[] },
-  { id:'investimentos', nome:'Investimentos', emoji:'📈', subcategorias:[], orcamentavel:false },
-  { id:'outros', nome:'Outros', emoji:'📦', subcategorias:[] }
+  { id:'ap', nome:'AP (Moradia)', emoji:'🏠', subcategorias:['Financiamento','Diarista','Condomínio','Energia','IPTU','TV','Internet/NET','Celular','Baba','Casa Coach'], aplicaEm:['despesa'] },
+  { id:'dizimo', nome:'Dízimo', emoji:'🙏', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'escola', nome:'Escola', emoji:'🎒', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'seguro', nome:'Seguro', emoji:'🛡️', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'alimentacao', nome:'Alimentação', emoji:'🍽️', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'supermercado', nome:'Supermercado', emoji:'🛒', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'carro', nome:'Carro', emoji:'🚗', subcategorias:['Combustível','Estacionamento','Seguro'], aplicaEm:['despesa'] },
+  { id:'beleza-saude', nome:'Beleza e Saúde', emoji:'💊', subcategorias:['Vacinas','Fisioterapia','Unha','Farmácia','Academia'], aplicaEm:['despesa'] },
+  { id:'transporte', nome:'Transporte', emoji:'🚕', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'lazer', nome:'Lazer', emoji:'🎉', subcategorias:['Restaurante','Cinema','Futebol','Poker','Streaming','Clube','Viagens'], aplicaEm:['despesa'] },
+  { id:'presentes', nome:'Presentes', emoji:'🎁', subcategorias:['Aniversariantes'], aplicaEm:['despesa'] },
+  { id:'compra-ap', nome:'Compra AP', emoji:'🛋️', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'investimentos', nome:'Investimentos', emoji:'📈', subcategorias:[], orcamentavel:false, aplicaEm:['despesa','receita'] },
+  { id:'salario', nome:'Salário', emoji:'💼', subcategorias:[], aplicaEm:['receita'] },
+  { id:'renda-anual', nome:'13º / Bônus', emoji:'🎯', subcategorias:[], aplicaEm:['receita'] },
+  { id:'venda-bens', nome:'Venda de Bens', emoji:'🏷️', subcategorias:[], aplicaEm:['receita'] },
+  { id:'outros', nome:'Outros', emoji:'📦', subcategorias:[], aplicaEm:['despesa','receita'] }
 ];
 
 var GRUPOS = [
@@ -547,7 +550,7 @@ function isoParaDiaSemanaBR(iso) {
   var d = new Date(iso + 'T00:00:00');
   var dias = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   var meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-  return dias[d.getDay()] + ', ' + d.getDate() + ' ' + meses[d.getMonth()];
+  return dias[d.getDay()] + ', ' + d.getDate() + ' ' + meses[d.getMonth()] + ' ' + d.getFullYear();
 }
 
 function addMeses(iso, n) {
@@ -815,11 +818,18 @@ function renderPillsGrupo(prefixo) {
   document.getElementById('pills-grupo-' + prefixo).innerHTML = html;
 }
 
+function categoriasParaTipo(tipo) {
+  return CATEGORIAS.filter(function (c) {
+    return !c.aplicaEm || c.aplicaEm.indexOf(tipo) !== -1;
+  });
+}
+
 function renderPillsCategoria(prefixo) {
   var st = FORM_STATE[prefixo];
   var html = '';
-  for (var i = 0; i < CATEGORIAS.length; i++) {
-    var c = CATEGORIAS[i];
+  var lista = categoriasParaTipo(st.tipo);
+  for (var i = 0; i < lista.length; i++) {
+    var c = lista[i];
     var on = st.categoria === c.id ? ' on' : '';
     html += '<button type="button" class="pill' + on + '" onclick="selecionarCategoria(\'' + prefixo + '\',\'' + c.id + '\')">' + c.emoji + ' ' + c.nome + '</button>';
   }
@@ -865,7 +875,16 @@ function renderParcelasBox(prefixo) {
 }
 
 /* ---- handlers de seleção (pill clicks) ---- */
-function selecionarTipo(prefixo, val) { FORM_STATE[prefixo].tipo = val; renderFormLancamento(prefixo); }
+function selecionarTipo(prefixo, val) {
+  var st = FORM_STATE[prefixo];
+  st.tipo = val;
+  var cat = getCategoriaById(st.categoria);
+  if (cat && cat.aplicaEm && cat.aplicaEm.indexOf(val) === -1) {
+    st.categoria = null;
+    st.subcategoria = null;
+  }
+  renderFormLancamento(prefixo);
+}
 function selecionarQuem(prefixo, val) { FORM_STATE[prefixo].quem = val; renderPillsQuem(prefixo); }
 function selecionarConta(prefixo, val) { FORM_STATE[prefixo].conta = val; renderPillsConta(prefixo); }
 function selecionarGrupo(prefixo, val) { FORM_STATE[prefixo].grupo = val; renderPillsGrupo(prefixo); }
@@ -1458,6 +1477,7 @@ function renderImportarTab() {
   html += '</div>';
 
   if (IMPORT_STATE.modo === 'extrato') {
+    html += '<div class="card-sub">Aceita OFX (melhor opção), CSV, XLSX/XLS ou PDF</div>';
     html += '<div class="label">Conta</div>';
     html += '<div class="pill-grid" id="pills-conta-extrato"></div>';
   } else if (IMPORT_STATE.modo === 'fatura') {
@@ -1476,11 +1496,20 @@ function renderImportarTab() {
   html += '<label class="upload-box" id="uploadBox">';
   html += '<div class="ic">📤</div>';
   html += '<div id="uploadTexto">Toque para escolher o arquivo</div>';
-  html += '<input type="file" id="inputArquivo" accept="' + (IMPORT_STATE.modo === 'fatura' || IMPORT_STATE.modo === 'historico' ? '.xlsx' : '.ofx,.csv,.pdf') + '" onchange="onArquivoSelecionado(event)">';
+  html += '<input type="file" id="inputArquivo" accept="' + (IMPORT_STATE.modo === 'fatura' || IMPORT_STATE.modo === 'historico' ? '.xlsx' : '.ofx,.csv,.pdf,.xlsx,.xls') + '" onchange="onArquivoSelecionado(event)">';
   html += '</label>';
 
   html += '<div id="statusProcessamento"></div>';
   html += '</div>'; // card
+
+  if (IMPORT_STATE.modo === 'historico') {
+    html += '<div class="card">';
+    html += '<div class="card-title">🔧 Reclassificar receitas já importadas</div>';
+    html += '<div class="card-sub">Se você já importou o histórico antes de eu separar Salário / 13º-Bônus / Venda de Bens, use isto pra corrigir retroativamente (procura receitas marcadas "Outros" com descrição de folha/salário/venda e ajusta a categoria — não mexe em mais nada).</div>';
+    html += '<div id="statusReclassificar"></div>';
+    html += '<div class="btn-row"><button class="btn btn-ghost" onclick="reclassificarReceitasHistoricas()">Buscar e reclassificar</button></div>';
+    html += '</div>';
+  }
 
   html += '<div id="mapeamentoCsvWrap"></div>';
   html += '<div id="revisaoImportWrap"></div>';
@@ -1591,7 +1620,8 @@ function detectarAutoCategoria(descricao) {
   if (/ELETROPAULO|\bDA ENERGIA\b/.test(d)) return { categoria: 'ap', subcategoria: 'Energia', grupo: 'fixo' };
   if (/\bVIVO\b|\bCELULAR\b/.test(d)) return { categoria: 'ap', subcategoria: 'Celular', grupo: 'fixo' };
   if (/DIZIMO/.test(d)) return { categoria: 'dizimo', grupo: 'fixo' };
-  if (/FOLHA PAGAMENTO/.test(d)) return { categoria: 'outros', grupo: 'fixo' };
+  if (/FOLHA PAGAMENTO|\bSALARIO\b/.test(d)) return { categoria: 'salario', grupo: 'fixo', quem: 'casal' };
+  if (/13[ºO]\s*SALARIO|\bBONUS\b|\bPLR\b/.test(d)) return { categoria: 'renda-anual', grupo: 'pontual', quem: 'casal' };
   if (/FUND SAUDE|SAUDE ITAU/.test(d)) return { categoria: 'beleza-saude', grupo: 'fixo' };
   return null;
 }
@@ -1638,34 +1668,43 @@ function parseCSVBruto(texto) {
   return { cabecalho: cabecalho, linhas: linhasDados, separador: sep };
 }
 
+/* ---------- parser XLSX/XLS bruto (extrato de conta em planilha) ---------- */
+function parseXLSXBrutoGenerico(arrayBuffer) {
+  var wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+  var ws = wb.Sheets[wb.SheetNames[0]];
+  var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+  rows = rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); });
+  if (rows.length < 2) throw new Error('Não encontrei linhas suficientes nessa planilha.');
+  var cabecalho = rows[0].map(function (c) { return String(c).trim(); });
+  var linhas = rows.slice(1);
+  return { cabecalho: cabecalho, linhas: linhas, separador: null };
+}
+
 function converterCSVParaTransacoes(parsed, mapeamento) {
   var out = [];
   for (var i = 0; i < parsed.linhas.length; i++) {
     var linha = parsed.linhas[i];
     var dataRaw = linha[mapeamento.data];
-    var valorCampo = linha[mapeamento.valor] || '';
-    var valorRaw = valorCampo.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-    var valor = parseFloat(valorRaw);
-    var dataISO = converterDataBR(dataRaw);
-    if (dataISO && !isNaN(valor)) {
+    var valorCampo = linha[mapeamento.valor];
+    var valor;
+    if (typeof valorCampo === 'number') {
+      valor = valorCampo;
+    } else {
+      var valorRaw = String(valorCampo || '').replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+      valor = parseFloat(valorRaw);
+    }
+    var dataISO = excelSerialParaISO(dataRaw);
+    if (dataISO && !isNaN(valor) && valor !== 0) {
       out.push({
         data: dataISO,
         valor: Math.abs(valor),
         tipo: valor < 0 ? 'despesa' : 'receita',
-        descricao: linha[mapeamento.descricao] || '',
+        descricao: String(linha[mapeamento.descricao] || ''),
         fitid: null
       });
     }
   }
   return out;
-}
-function converterDataBR(dataRaw) {
-  if (!dataRaw) return null;
-  var m = dataRaw.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-  if (m) return m[3] + '-' + m[2] + '-' + m[1];
-  var m2 = dataRaw.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (m2) return m2[1] + '-' + m2[2] + '-' + m2[3];
-  return null;
 }
 
 /* ---------- parser PDF (best-effort, layout Itaú) ---------- */
@@ -1856,14 +1895,18 @@ function onArquivoSelecionado(evt) {
     };
     reader.readAsArrayBuffer(file);
 
-  } else if (ext === 'xlsx') {
+  } else if (ext === 'xlsx' || ext === 'xls') {
     reader.onload = function (e) {
       try {
         if (IMPORT_STATE.modo === 'historico') {
           processarHistoricoXLSX(e.target.result);
-        } else {
+        } else if (IMPORT_STATE.modo === 'fatura') {
           var itens = parseFaturaXLSX(e.target.result);
           prosseguirComItens(itens, IMPORT_STATE.contaFatura);
+        } else {
+          // extrato de conta em planilha: mesmo fluxo de mapeamento de colunas do CSV
+          IMPORT_STATE.csvParsed = parseXLSXBrutoGenerico(e.target.result);
+          renderMapeamentoCSV();
         }
       } catch (err) {
         console.error(err);
@@ -1885,7 +1928,7 @@ function renderMapeamentoCSV() {
     opts += '<option value="' + i + '">' + parsed.cabecalho[i] + '</option>';
   }
   var html = '<div class="card">';
-  html += '<div class="card-title">Mapear colunas do CSV</div>';
+  html += '<div class="card-title">Mapear colunas do arquivo</div>';
   html += '<div class="card-sub">Bancos variam no formato — indique qual coluna é qual</div>';
   html += '<div class="label">Coluna da data</div><select class="input" id="mapData">' + opts + '</select>';
   html += '<div class="label">Coluna da descrição</div><select class="input" id="mapDesc">' + opts + '</select>';
@@ -1896,7 +1939,7 @@ function renderMapeamentoCSV() {
   html += '</tr></thead><tbody>';
   for (var r = 0; r < Math.min(3, parsed.linhas.length); r++) {
     html += '<tr>';
-    for (var c2 = 0; c2 < parsed.linhas[r].length; c2++) html += '<td>' + parsed.linhas[r][c2] + '</td>';
+    for (var c2 = 0; c2 < parsed.linhas[r].length; c2++) html += '<td>' + formatarCelulaPreview(parsed.linhas[r][c2]) + '</td>';
     html += '</tr>';
   }
   html += '</tbody></table>';
@@ -1907,6 +1950,16 @@ function renderMapeamentoCSV() {
   document.getElementById('mapData').value = 0;
   document.getElementById('mapDesc').value = Math.min(1, parsed.cabecalho.length - 1);
   document.getElementById('mapValor').value = Math.min(2, parsed.cabecalho.length - 1);
+}
+
+function formatarCelulaPreview(valor) {
+  if (Object.prototype.toString.call(valor) === '[object Date]' && !isNaN(valor.getTime())) {
+    return isoParaBR(excelSerialParaISO(valor));
+  }
+  if (typeof valor === 'number') {
+    return valor.toLocaleString('pt-BR');
+  }
+  return String(valor === undefined || valor === null ? '' : valor);
 }
 
 function confirmarMapeamentoCSV() {
@@ -2334,6 +2387,14 @@ function mapearLinhaHistorico(campos, naoMapeados) {
   if (tipo1Chave === 'lucas' || tipo1Chave === 'clara') {
     quem = tipo1Chave;
     catInfo = MAPA_TIPO2_FILHOS[tipo2Chave] || { categoria: 'outros' };
+  } else if (tipo1Chave === 'receita') {
+    var descUpper = descricao.toUpperCase();
+    if (/FOLHA|SALARIO/.test(descUpper)) catInfo = { categoria: 'salario' };
+    else if (/13[ºO]|BONUS|PLR/.test(descUpper)) catInfo = { categoria: 'renda-anual' };
+    else if (/VENDA/.test(descUpper)) catInfo = { categoria: 'venda-bens' };
+    else catInfo = { categoria: 'outros' };
+    var respChaveR = normalizarChave(campos.responsavel);
+    quem = MAPA_QUEM_RESPONSAVEL[respChaveR] || 'familia';
   } else {
     if (tipo1Chave === 'cartao') return null; // pagamento de fatura, já coberto por regra de exclusão
     catInfo = MAPA_CATEGORIA_TIPO1[tipo1Chave];
@@ -2589,7 +2650,7 @@ function calcularRangeFluxo(periodo) {
   if (periodo === '3meses') return { de: addMeses(primeiroDiaMesISO(hoje), -2), ate: ultimoDiaMesISO(hoje) };
   if (periodo === '12meses') return { de: addMeses(primeiroDiaMesISO(hoje), -11), ate: ultimoDiaMesISO(hoje) };
   if (periodo === 'ano') return { de: hoje.substring(0, 4) + '-01-01', ate: hoje.substring(0, 4) + '-12-31' };
-  if (periodo === 'tudo') return { de: '2000-01-01', ate: '2100-01-01' };
+  if (periodo === 'tudo' || periodo === 'porano') return { de: '2000-01-01', ate: '2100-01-01' };
   return { de: addMeses(primeiroDiaMesISO(hoje), -5), ate: ultimoDiaMesISO(hoje) }; // 6meses (padrão)
 }
 
@@ -2605,7 +2666,8 @@ function renderFluxoTab() {
 function renderFluxoPeriodoChips() {
   var periodos = [
     { id: '3meses', nome: '3 meses' }, { id: '6meses', nome: '6 meses' },
-    { id: '12meses', nome: '12 meses' }, { id: 'ano', nome: 'Este ano' }, { id: 'tudo', nome: 'Tudo' }
+    { id: '12meses', nome: '12 meses' }, { id: 'ano', nome: 'Este ano' },
+    { id: 'porano', nome: '📅 Por ano' }, { id: 'tudo', nome: 'Tudo' }
   ];
   var html = '';
   for (var i = 0; i < periodos.length; i++) {
@@ -2646,39 +2708,44 @@ function renderFluxoConteudo(itens) {
     return;
   }
 
-  var porMes = {};
+  var modoAno = FLUXO_STATE.periodo === 'porano';
+  var porBucket = {};
   var porCategoria = {};
-  var investPorMes = {};
+  var porCategoriaReceita = {};
+  var investPorBucket = {};
   var totalEntradas = 0, totalSaidas = 0, totalAportes = 0, totalResgates = 0;
-  var mesesSet = {};
+  var bucketsSet = {};
 
   for (var i = 0; i < itens.length; i++) {
     var t = itens[i];
-    var anoMes = t.data.substring(0, 7);
-    mesesSet[anoMes] = true;
+    var chave = modoAno ? t.data.substring(0, 4) : t.data.substring(0, 7);
+    bucketsSet[chave] = true;
     var cat = getCategoriaById(t.categoria);
     var isInvest = cat && cat.orcamentavel === false;
 
     if (isInvest) {
-      if (!investPorMes[anoMes]) investPorMes[anoMes] = { aporte: 0, resgate: 0 };
-      if (t.tipo === 'despesa') { investPorMes[anoMes].aporte += t.valor; totalAportes += t.valor; }
-      else { investPorMes[anoMes].resgate += t.valor; totalResgates += t.valor; }
+      if (!investPorBucket[chave]) investPorBucket[chave] = { aporte: 0, resgate: 0 };
+      if (t.tipo === 'despesa') { investPorBucket[chave].aporte += t.valor; totalAportes += t.valor; }
+      else { investPorBucket[chave].resgate += t.valor; totalResgates += t.valor; }
       continue;
     }
 
-    if (!porMes[anoMes]) porMes[anoMes] = { despesa: 0, receita: 0 };
+    if (!porBucket[chave]) porBucket[chave] = { despesa: 0, receita: 0 };
     if (t.tipo === 'despesa') {
-      porMes[anoMes].despesa += t.valor;
+      porBucket[chave].despesa += t.valor;
       totalSaidas += t.valor;
       porCategoria[t.categoria] = (porCategoria[t.categoria] || 0) + t.valor;
     } else {
-      porMes[anoMes].receita += t.valor;
+      porBucket[chave].receita += t.valor;
       totalEntradas += t.valor;
+      porCategoriaReceita[t.categoria] = (porCategoriaReceita[t.categoria] || 0) + t.valor;
     }
   }
 
-  var mesesOrdenados = Object.keys(mesesSet).sort();
+  var bucketsOrdenados = Object.keys(bucketsSet).sort();
   var saldo = totalEntradas - totalSaidas;
+  var labelBuckets = modoAno ? bucketsOrdenados : bucketsOrdenados.map(mesLabelCurto);
+  var tituloPeriodo = modoAno ? 'por ano' : 'por mês';
 
   var html = '';
   html += '<div class="resumo-import">';
@@ -2694,25 +2761,26 @@ function renderFluxoConteudo(itens) {
     html += '</div>';
   }
 
-  html += '<div class="card"><div class="card-title">Entradas x Saídas por mês</div><div style="position:relative;height:240px;"><canvas id="chartMensal"></canvas></div></div>';
+  html += '<div class="card"><div class="card-title">Entradas x Saídas ' + tituloPeriodo + '</div><div style="position:relative;height:240px;"><canvas id="chartMensal"></canvas></div></div>';
+  html += '<div class="card"><div class="card-title">Receitas por categoria</div><div style="position:relative;height:240px;"><canvas id="chartReceitas"></canvas></div></div>';
   html += '<div class="card"><div class="card-title">Despesas por categoria</div><div style="position:relative;height:280px;"><canvas id="chartCategorias"></canvas></div></div>';
   if (totalAportes > 0 || totalResgates > 0) {
-    html += '<div class="card"><div class="card-title">Investimentos por mês</div><div style="position:relative;height:240px;"><canvas id="chartInvest"></canvas></div></div>';
+    html += '<div class="card"><div class="card-title">Investimentos ' + tituloPeriodo + '</div><div style="position:relative;height:240px;"><canvas id="chartInvest"></canvas></div></div>';
   }
 
   document.getElementById('fluxoConteudo').innerHTML = html;
 
-  desenharChartMensal(mesesOrdenados, porMes);
+  desenharChartMensal(labelBuckets, bucketsOrdenados, porBucket);
   desenharChartCategorias(porCategoria);
-  if (totalAportes > 0 || totalResgates > 0) desenharChartInvest(mesesOrdenados, investPorMes);
+  desenharChartReceitas(porCategoriaReceita);
+  if (totalAportes > 0 || totalResgates > 0) desenharChartInvest(labelBuckets, bucketsOrdenados, investPorBucket);
 }
 
-function desenharChartMensal(meses, porMes) {
+function desenharChartMensal(labels, chaves, porBucket) {
   var ctx = document.getElementById('chartMensal');
   if (!ctx || typeof Chart === 'undefined') return;
-  var labels = meses.map(mesLabelCurto);
-  var despesas = meses.map(function (m) { return porMes[m] ? Math.round(porMes[m].despesa * 100) / 100 : 0; });
-  var receitas = meses.map(function (m) { return porMes[m] ? Math.round(porMes[m].receita * 100) / 100 : 0; });
+  var despesas = chaves.map(function (m) { return porBucket[m] ? Math.round(porBucket[m].despesa * 100) / 100 : 0; });
+  var receitas = chaves.map(function (m) { return porBucket[m] ? Math.round(porBucket[m].receita * 100) / 100 : 0; });
 
   if (window._chartMensal) window._chartMensal.destroy();
   window._chartMensal = new Chart(ctx, {
@@ -2753,12 +2821,31 @@ function desenharChartCategorias(porCategoria) {
   });
 }
 
-function desenharChartInvest(meses, investPorMes) {
+function desenharChartReceitas(porCategoriaReceita) {
+  var ctx = document.getElementById('chartReceitas');
+  if (!ctx || typeof Chart === 'undefined') return;
+  var entradas = Object.keys(porCategoriaReceita).map(function (id) { return { id: id, valor: porCategoriaReceita[id] }; });
+  entradas.sort(function (a, b) { return b.valor - a.valor; });
+  var labels = entradas.map(function (e) { var c = getCategoriaById(e.id); return c ? c.emoji + ' ' + c.nome : e.id; });
+  var valores = entradas.map(function (e) { return Math.round(e.valor * 100) / 100; });
+
+  if (window._chartReceitas) window._chartReceitas.destroy();
+  window._chartReceitas = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labels, datasets: [{ label: 'Receita', data: valores, backgroundColor: '#2D6A4F' }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true } }
+    }
+  });
+}
+
+function desenharChartInvest(labels, chaves, investPorBucket) {
   var ctx = document.getElementById('chartInvest');
   if (!ctx || typeof Chart === 'undefined') return;
-  var labels = meses.map(mesLabelCurto);
-  var aportes = meses.map(function (m) { return investPorMes[m] ? Math.round(investPorMes[m].aporte * 100) / 100 : 0; });
-  var resgates = meses.map(function (m) { return investPorMes[m] ? Math.round(investPorMes[m].resgate * 100) / 100 : 0; });
+  var aportes = chaves.map(function (m) { return investPorBucket[m] ? Math.round(investPorBucket[m].aporte * 100) / 100 : 0; });
+  var resgates = chaves.map(function (m) { return investPorBucket[m] ? Math.round(investPorBucket[m].resgate * 100) / 100 : 0; });
 
   if (window._chartInvest) window._chartInvest.destroy();
   window._chartInvest = new Chart(ctx, {
@@ -2862,6 +2949,68 @@ function renderLogImportacoes(itens) {
   html += '</div>';
   wrap.innerHTML = html;
 }
+
+/* ==================================================================== */
+/* ==================== RECLASSIFICAÇÃO RETROATIVA (receitas) ========= */
+/* ==================================================================== */
+
+function reclassificarReceitasHistoricas() {
+  var fb = window._fb;
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
+  var q = fb.query(col, fb.where('origem', '==', 'historico'), fb.where('tipo', '==', 'receita'), fb.where('categoria', '==', 'outros'));
+
+  document.getElementById('statusReclassificar').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⏳</div>Buscando...</div>';
+
+  fb.getDocs(q).then(function (snap) {
+    var candidatos = [];
+    snap.forEach(function (d) {
+      var t = d.data();
+      var descUpper = (t.descricao || '').toUpperCase();
+      var novaCategoria = null;
+      if (/FOLHA|SALARIO/.test(descUpper)) novaCategoria = 'salario';
+      else if (/13[ºO]|BONUS|PLR/.test(descUpper)) novaCategoria = 'renda-anual';
+      else if (/VENDA/.test(descUpper)) novaCategoria = 'venda-bens';
+      if (novaCategoria) candidatos.push({ id: d.id, categoria: novaCategoria });
+    });
+
+    if (candidatos.length === 0) {
+      document.getElementById('statusReclassificar').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">✅</div>Nada pra reclassificar — já está tudo certo (ou o histórico ainda não foi importado).</div>';
+      return;
+    }
+
+    var TAMANHO_LOTE = 450;
+    var lotes = [];
+    for (var i = 0; i < candidatos.length; i += TAMANHO_LOTE) lotes.push(candidatos.slice(i, i + TAMANHO_LOTE));
+    var atualizados = 0;
+
+    function processarLote(idx) {
+      if (idx >= lotes.length) {
+        document.getElementById('statusReclassificar').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">✅</div>' + atualizados + ' lançamentos reclassificados!</div>';
+        atualizarStatsMes();
+        return;
+      }
+      var batch = fb.writeBatch(fb.db);
+      var lote = lotes[idx];
+      for (var j = 0; j < lote.length; j++) {
+        var ref = fb.doc(fb.db, 'familias', FAMILIA_ID, 'transacoes', lote[j].id);
+        batch.update(ref, { categoria: lote[j].categoria });
+      }
+      batch.commit().then(function () {
+        atualizados += lote.length;
+        document.getElementById('statusReclassificar').innerHTML = '<div class="card-sub">Atualizando... ' + atualizados + ' / ' + candidatos.length + '</div>';
+        processarLote(idx + 1);
+      }).catch(function (e) {
+        console.error(e);
+        document.getElementById('statusReclassificar').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⚠️</div>Erro: ' + e.message + ' (atualizados até agora: ' + atualizados + ')</div>';
+      });
+    }
+    processarLote(0);
+  }).catch(function (e) {
+    console.error(e);
+    document.getElementById('statusReclassificar').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⚠️</div>Erro ao buscar: ' + e.message + '. Se o console mostrar link para criar índice, clique nele e tente de novo.</div>';
+  });
+}
+window.reclassificarReceitasHistoricas = reclassificarReceitasHistoricas;
 
 
 
