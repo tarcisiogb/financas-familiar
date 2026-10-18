@@ -401,6 +401,15 @@ body { background:var(--bg); }
   .modal-bg { align-items:center; }
   .modal { border-radius:20px; }
 }
+
+.dup-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;}
+.dup-barra{position:sticky;bottom:8px;z-index:5;order:99;background:var(--card);border:1px solid var(--border,#ddd);border-radius:12px;padding:10px 12px;margin:8px 0 12px;box-shadow:0 2px 8px rgba(0,0,0,.08);}
+.status-ok{background:var(--receita-l);color:var(--receita);}
+.dup-resumo{font-size:13px;margin-bottom:8px;}
+.dup-grupo{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border,#ddd);border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:pointer;opacity:.6;}
+.dup-grupo.sel{opacity:1;border-color:var(--primary,#555);}
+.dup-grupo input{margin-top:4px;width:18px;height:18px;flex:none;}
+.dup-corpo{flex:1;min-width:0;}
 </style>
 </head>
 <body>
@@ -825,7 +834,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-10-18.4';
+var APP_VERSAO = '2026-10-18.5';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -4809,39 +4818,80 @@ function renderDuplicados() {
     wrap.innerHTML = '<div class="empty-state"><div class="ic">✅</div>Nenhum lançamento duplicado encontrado (' + (DUP_STATE.totalDocs || 0) + ' lançamentos verificados).</div>';
     return;
   }
-  var extras = 0, extrasMistos = 0, gruposMistos = 0;
+  var gruposMistos = 0;
   for (var i = 0; i < gs.length; i++) {
-    extras += gs[i].itens.length - 1;
-    if (gs[i].misto) { extrasMistos += gs[i].itens.length - 1; gruposMistos++; }
+    if (gs[i].sel === undefined) gs[i].sel = true;
+    if (gs[i].misto) gruposMistos++;
   }
-  var html = '<div class="resumo-import">';
-  html += '<div class="resumo-chip"><b>' + gs.length + '</b>grupos suspeitos</div>';
-  html += '<div class="resumo-chip"><b>' + extras + '</b>lançamentos a mais</div>';
+  var html = '<div class="card-sub">Regra: dois ou mais lançamentos da <b>mesma conta</b> com <b>mesma data, mesmo valor, mesmo tipo e mesma descrição</b> (ignorando acento, maiúscula e pontuação). Todos os grupos vêm marcados: desmarque os que forem compras repetidas de verdade e clique em remover. Em cada grupo marcado, fica 1 lançamento (prioridade: mesclado, manual, migrado, importado) e os demais saem.</div>';
+  html += '<div class="dup-toolbar">';
+  html += '<button type="button" class="pill pill-sub" onclick="dupMarcarTodos(true)">☑ Marcar todos</button>';
+  html += '<button type="button" class="pill pill-sub" onclick="dupMarcarTodos(false)">☐ Desmarcar todos</button>';
+  if (gruposMistos > 0 && gruposMistos < gs.length) html += '<button type="button" class="pill pill-sub" onclick="dupMarcarMistos()">Só origens diferentes (' + gruposMistos + ')</button>';
   html += '</div>';
-  html += '<div class="card-sub">Cada grupo tem lançamentos idênticos (mesma data, valor e descrição). Se foram duas compras de verdade no mesmo dia, toque em "É legítimo". Caso contrário, remova os extras — o app mantém o melhor (mesclado/manual/migrado antes de importado).</div>';
-  if (gruposMistos > 0) {
-    html += '<div class="btn-row"><button class="btn btn-ghost" onclick="removerExtrasMistos()">🧹 Remover extras dos ' + gruposMistos + ' grupos com origens diferentes (' + extrasMistos + ' lançamentos)</button></div>';
-    html += '<div class="card-sub" style="margin-top:6px;">Origens diferentes (ex.: migrado + importado) quase sempre é o mesmo lançamento entrando duas vezes.</div>';
-  }
-  var limite = Math.min(gs.length, 60);
+  html += '<div class="dup-barra" id="dupBarra"></div>';
+  var limite = Math.min(gs.length, 500);
   for (var g = 0; g < limite; g++) {
     var gr = gs[g];
     var t0 = gr.itens[0];
     var conta = getContaById(t0.conta);
-    html += '<div class="rev-row"><div class="rev-top"><div class="rev-mid">';
+    var manter = dupEscolherManter(gr.itens);
+    html += '<label class="dup-grupo' + (gr.sel ? ' sel' : '') + '" id="dupg-' + g + '">';
+    html += '<input type="checkbox" ' + (gr.sel ? 'checked ' : '') + 'onchange="dupToggle(' + g + ')">';
+    html += '<div class="dup-corpo"><div class="rev-top"><div class="rev-mid">';
     html += '<div class="rev-desc">' + escMeta(t0.descricao) + '</div>';
-    html += '<div class="rev-meta">' + isoParaBR(t0.data) + ' · ' + (conta ? escMeta(conta.nome) : '') + ' · ' + gr.itens.length + ' lançamentos iguais</div>';
+    html += '<div class="rev-meta">' + isoParaBR(t0.data) + ' · ' + (conta ? escMeta(conta.nome) : '') + ' · ' + gr.itens.length + ' lançamentos iguais' + (gr.misto ? '' : ' · mesma origem') + '</div>';
     html += '</div><div class="lanc-valor ' + (t0.tipo === 'despesa' ? 'despesa' : 'receita') + '">' + (t0.tipo === 'despesa' ? '- ' : '+ ') + fmtBRL(t0.valor) + '</div></div>';
     html += '<div class="rev-status">';
-    for (var o in gr.origens) html += '<span class="status-badge ' + (gr.misto ? 'status-merge' : 'status-multi') + '">' + gr.origens[o] + '× ' + dupNomeOrigem(o) + '</span>';
-    html += '</div>';
-    html += '<div class="rev-campos"><button type="button" class="pill pill-sub" onclick="removerExtrasGrupo(' + g + ')">🗑️ Manter 1, remover ' + (gr.itens.length - 1) + '</button>';
-    html += '<button type="button" class="pill pill-sub" onclick="dupMarcarLegitimo(' + g + ')">É legítimo</button></div>';
-    html += '</div>';
+    for (var j = 0; j < gr.itens.length; j++) {
+      var it = gr.itens[j];
+      var fica = it.id === manter.id;
+      html += '<span class="status-badge ' + (fica ? 'status-ok' : 'status-multi') + '">' + (fica ? '✅ fica' : '🗑️ sai') + ' · ' + dupNomeOrigem(it.origem || 'manual') + '</span>';
+    }
+    html += '</div></div></label>';
   }
   if (gs.length > limite) html += '<div class="card-sub">Mostrando os ' + limite + ' mais recentes de ' + gs.length + ' grupos. Resolva estes e procure de novo.</div>';
   wrap.innerHTML = html;
+  dupAtualizarBarra();
 }
+
+function dupAtualizarBarra() {
+  var barra = document.getElementById('dupBarra');
+  if (!barra) return;
+  var gs = DUP_STATE.grupos;
+  var nSel = 0, extras = 0, nNao = 0;
+  for (var i = 0; i < gs.length; i++) {
+    if (gs[i].sel) { nSel++; extras += gs[i].itens.length - 1; } else nNao++;
+  }
+  var h = '<div class="dup-resumo"><b>' + nSel + '</b> de ' + gs.length + ' grupos marcados · <b>' + extras + '</b> lançamentos serão removidos</div>';
+  h += '<div class="btn-row">';
+  h += '<button type="button" class="btn btn-primary" ' + (nSel === 0 ? 'disabled ' : '') + 'onclick="dupRemoverMarcados()">🗑️ Remover ' + extras + ' extras</button>';
+  if (nNao > 0) h += '<button type="button" class="btn btn-ghost" onclick="dupLegitimosDesmarcados()">Os ' + nNao + ' desmarcados são legítimos (parar de avisar)</button>';
+  h += '</div>';
+  barra.innerHTML = h;
+}
+
+function dupToggle(idx) {
+  var gr = DUP_STATE.grupos[idx];
+  if (!gr) return;
+  gr.sel = !gr.sel;
+  var el = document.getElementById('dupg-' + idx);
+  if (el) el.className = 'dup-grupo' + (gr.sel ? ' sel' : '');
+  dupAtualizarBarra();
+}
+window.dupToggle = dupToggle;
+
+function dupMarcarTodos(v) {
+  for (var i = 0; i < DUP_STATE.grupos.length; i++) DUP_STATE.grupos[i].sel = v;
+  renderDuplicados();
+}
+window.dupMarcarTodos = dupMarcarTodos;
+
+function dupMarcarMistos() {
+  for (var i = 0; i < DUP_STATE.grupos.length; i++) DUP_STATE.grupos[i].sel = !!DUP_STATE.grupos[i].misto;
+  renderDuplicados();
+}
+window.dupMarcarMistos = dupMarcarMistos;
 
 function dupApagar(listaParaApagar) {
   var fb = window._fb;
@@ -4859,47 +4909,34 @@ function dupApagar(listaParaApagar) {
   return lote(0).then(function () { return feitos; });
 }
 
-function removerExtrasGrupo(idx) {
-  var gr = DUP_STATE.grupos[idx];
-  if (!gr) return;
-  var manter = dupEscolherManter(gr.itens);
-  var apagar = gr.itens.filter(function (t) { return t.id !== manter.id; });
-  if (!confirm('Remover ' + apagar.length + ' lançamento(s) duplicado(s) de "' + gr.itens[0].descricao + '"? Fica 1 (' + dupNomeOrigem(manter.origem || 'manual') + ').')) return;
-  dupApagar(apagar).then(function () {
-    DUP_STATE.grupos.splice(idx, 1);
-    renderDuplicados();
-    atualizarStatsMes();
-  }).catch(function (e) { alert('Erro ao remover: ' + e.message); });
-}
-window.removerExtrasGrupo = removerExtrasGrupo;
-
-function dupMarcarLegitimo(idx) {
-  var gr = DUP_STATE.grupos[idx];
-  if (!gr) return;
-  DUP_STATE.ignorados[gr.chave] = true;
-  dupSalvarIgnorados();
-  DUP_STATE.grupos.splice(idx, 1);
-  renderDuplicados();
-}
-window.dupMarcarLegitimo = dupMarcarLegitimo;
-
-function removerExtrasMistos() {
+function dupRemoverMarcados() {
   var apagar = [];
-  var grs = DUP_STATE.grupos.filter(function (g) { return g.misto; });
+  var grs = DUP_STATE.grupos.filter(function (g) { return g.sel; });
   for (var i = 0; i < grs.length; i++) {
     var manter = dupEscolherManter(grs[i].itens);
     for (var j = 0; j < grs[i].itens.length; j++) if (grs[i].itens[j].id !== manter.id) apagar.push(grs[i].itens[j]);
   }
   if (apagar.length === 0) return;
-  if (!confirm('Remover ' + apagar.length + ' lançamentos duplicados de ' + grs.length + ' grupos com origens diferentes? Em cada grupo fica 1 (mesclado/manual/migrado antes de importado).')) return;
+  if (!confirm('Remover ' + apagar.length + ' lançamentos duplicados de ' + grs.length + ' grupos? Em cada grupo fica 1 lançamento. Não dá para desfazer.')) return;
   dupApagar(apagar).then(function (n) {
-    DUP_STATE.grupos = DUP_STATE.grupos.filter(function (g) { return !g.misto; });
+    DUP_STATE.grupos = DUP_STATE.grupos.filter(function (g) { return !g.sel; });
     renderDuplicados();
     atualizarStatsMes();
     alert(n + ' lançamentos removidos.');
   }).catch(function (e) { alert('Erro ao remover: ' + e.message); });
 }
-window.removerExtrasMistos = removerExtrasMistos;
+window.dupRemoverMarcados = dupRemoverMarcados;
+
+function dupLegitimosDesmarcados() {
+  var nao = DUP_STATE.grupos.filter(function (g) { return !g.sel; });
+  if (nao.length === 0) return;
+  if (!confirm('Marcar ' + nao.length + ' grupos como compras legítimas? Eles deixam de aparecer nas próximas buscas.')) return;
+  for (var i = 0; i < nao.length; i++) DUP_STATE.ignorados[nao[i].chave] = true;
+  dupSalvarIgnorados();
+  DUP_STATE.grupos = DUP_STATE.grupos.filter(function (g) { return g.sel; });
+  renderDuplicados();
+}
+window.dupLegitimosDesmarcados = dupLegitimosDesmarcados;
 
 /* ==================================================================== */
 /* ==================== ABA RECORRENTES ================================ */
