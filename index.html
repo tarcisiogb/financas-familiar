@@ -2352,7 +2352,6 @@ function prosseguirComItens(itensBrutos, contaId) {
   var fb = window._fb;
   var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
   var q = fb.query(col,
-    fb.where('conta', '==', contaId),
     fb.where('data', '>=', fmtLocal(deExpandido)),
     fb.where('data', '<=', fmtLocal(ateExpandido))
   );
@@ -2365,7 +2364,8 @@ function prosseguirComItens(itensBrutos, contaId) {
     var regras = resultados[1] || {};
     var existentes = [];
     snap.forEach(function (d) {
-      var t = d.data(); t.id = d.id; existentes.push(t);
+      var t = d.data(); t.id = d.id;
+      if (t.conta === contaId) existentes.push(t);
     });
 
     var resultado = sugerirReconciliacao(itensFiltrados, existentes);
@@ -4639,13 +4639,14 @@ function carregarRecorrentes() {
 
   var hoje = todayISO();
   var de3meses = addMeses(primeiroDiaMesISO(hoje), -2);
-  var qFixo = fb.query(col, fb.where('grupo', '==', 'fixo'), fb.where('data', '>=', de3meses), fb.orderBy('data', 'desc'));
+  var qFixo = fb.query(col, fb.where('data', '>=', de3meses));
 
   Promise.all([fb.getDocs(qParcelados), fb.getDocs(qFixo)]).then(function (resultados) {
     var parcelados = [];
     resultados[0].forEach(function (d) { var t = d.data(); t.id = d.id; parcelados.push(t); });
     var fixos = [];
-    resultados[1].forEach(function (d) { var t = d.data(); t.id = d.id; fixos.push(t); });
+    resultados[1].forEach(function (d) { var t = d.data(); t.id = d.id; if (t.grupo === 'fixo') fixos.push(t); });
+    fixos.sort(function (a, b) { return a.data < b.data ? 1 : (a.data > b.data ? -1 : 0); });
     renderRecorrentesConteudo(parcelados, fixos);
   }).catch(function (e) {
     console.error(e);
