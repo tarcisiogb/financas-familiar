@@ -825,7 +825,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-10-18.2';
+var APP_VERSAO = '2026-10-18.3';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -2486,6 +2486,7 @@ function renderLinhaRevisao(item) {
     html += selectQuemInline(item.tempId, item.quem);
     html += selectGrupoInline(item.tempId, item.grupo);
     html += selectCategoriaInline(item.tempId, item.categoria);
+    html += '<span id="sub-' + item.tempId + '">' + selectSubcategoriaInline(item.tempId, item.categoria, item.subcategoria) + '</span>';
     html += '</div>';
     html += '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-top:7px;">';
     html += '<input type="checkbox" ' + (item.aprenderRegra ? 'checked' : '') + ' onchange="toggleAprenderRegra(\'' + item.tempId + '\', this.checked)" style="width:16px;height:16px;">';
@@ -2527,7 +2528,7 @@ function selectGrupoInline(tempId, valorAtual) {
   return html;
 }
 function selectCategoriaInline(tempId, valorAtual) {
-  var html = '<select class="select-inline" onchange="atualizarCampoRevisao(\'' + tempId + '\',\'categoria\',this.value)">';
+  var html = '<select class="select-inline" onchange="atualizarCategoriaRevisao(\'' + tempId + '\',this.value)">';
   for (var i = 0; i < CATEGORIAS.length; i++) {
     var c = CATEGORIAS[i];
     html += '<option value="' + c.id + '"' + (valorAtual === c.id ? ' selected' : '') + '>' + c.emoji + ' ' + c.nome + '</option>';
@@ -2535,6 +2536,31 @@ function selectCategoriaInline(tempId, valorAtual) {
   html += '</select>';
   return html;
 }
+
+function selectSubcategoriaInline(tempId, categoriaId, valorAtual) {
+  var cat = getCategoriaById(categoriaId);
+  if (!cat || !cat.subcategorias || cat.subcategorias.length === 0) return '';
+  var subs = cat.subcategorias.slice();
+  if (valorAtual && subs.indexOf(valorAtual) === -1) subs.push(valorAtual);
+  var html = '<select class="select-inline" onchange="atualizarCampoRevisao(\'' + tempId + '\',\'subcategoria\',this.value)">';
+  html += '<option value="">Subcategoria?</option>';
+  for (var i = 0; i < subs.length; i++) {
+    html += '<option value="' + escMeta(subs[i]) + '"' + (valorAtual === subs[i] ? ' selected' : '') + '>' + escMeta(subs[i]) + '</option>';
+  }
+  html += '</select>';
+  return html;
+}
+
+function atualizarCategoriaRevisao(tempId, categoriaId) {
+  var item = acharItemRevisao(tempId);
+  if (!item) return;
+  item.categoria = categoriaId;
+  var cat = getCategoriaById(categoriaId);
+  if (!cat || !cat.subcategorias || cat.subcategorias.indexOf(item.subcategoria) === -1) item.subcategoria = null;
+  var alvo = document.getElementById('sub-' + tempId);
+  if (alvo) alvo.innerHTML = selectSubcategoriaInline(tempId, categoriaId, item.subcategoria);
+}
+window.atualizarCategoriaRevisao = atualizarCategoriaRevisao;
 
 function acharItemRevisao(tempId) {
   for (var i = 0; i < IMPORT_STATE.itensRevisao.length; i++) {
@@ -2553,7 +2579,7 @@ window.toggleSelecaoRevisao = toggleSelecaoRevisao;
 
 function atualizarCampoRevisao(tempId, campo, valor) {
   var item = acharItemRevisao(tempId);
-  if (item) item[campo] = valor;
+  if (item) item[campo] = (campo === 'subcategoria' && valor === '') ? null : valor;
 }
 window.atualizarCampoRevisao = atualizarCampoRevisao;
 
