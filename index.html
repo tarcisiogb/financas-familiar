@@ -825,7 +825,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-10-18.3';
+var APP_VERSAO = '2026-10-18.4';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -1698,6 +1698,13 @@ function renderImportarTab() {
   html += '</label>';
   html += '</div>';
 
+  html += '<div class="card">';
+  html += '<div class="card-title">🧹 Verificar lançamentos duplicados</div>';
+  html += '<div class="card-sub">Procura lançamentos idênticos (mesma data, valor e descrição) já gravados — por exemplo, de um arquivo importado duas vezes — e deixa você remover os extras.</div>';
+  html += '<div id="dupWrap"></div>';
+  html += '<div class="btn-row"><button class="btn btn-ghost" onclick="procurarDuplicados()">🔎 Procurar duplicados</button></div>';
+  html += '</div>';
+
   html += '<div id="mapeamentoCsvWrap"></div>';
   html += '<div id="revisaoImportWrap"></div>';
 
@@ -2098,15 +2105,56 @@ function parseFaturaXLSX(arrayBuffer) {
 }
 
 /* ---------- reconciliação ---------- */
+function normalizarDescParaChave(d) {
+  return String(d || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '');
+}
+function chaveConteudoTransacao(t) {
+  return t.data + '|' + Math.round(t.valor * 100) + '|' + t.tipo + '|' + normalizarDescParaChave(t.descricao);
+}
+function chaveValorTransacao(t) {
+  return t.data + '|' + Math.round(t.valor * 100) + '|' + t.tipo;
+}
+
+// Conferência anti-duplicidade (funciona mesmo importando o mesmo arquivo várias vezes):
+// 1) mesmo FITID  -> já importado
+// 2) mesma data + valor + tipo + descrição normalizada de algum lançamento que já existe -> já importado
+//    (contagem 1 a 1: se o arquivo traz 2 linhas iguais e já existem 2, as duas são "já importadas";
+//     se existe só 1, a outra entra como nova — assim compras legítimas iguais no mesmo dia não se perdem)
+// 3) lançamento manual parecido (valor, tipo, ±2 dias) -> sugestão de mesclagem
+// 4) mesma data + valor + tipo mas descrição diferente -> "provável duplicado" (vem desmarcado)
 function sugerirReconciliacao(transacoesImportadas, transacoesExistentes) {
   var candidatosManuais = transacoesExistentes.filter(function (t) { return t.origem === 'manual'; });
   var fitidsExistentes = {};
   transacoesExistentes.forEach(function (t) { if (t.fitid) fitidsExistentes[t.fitid] = true; });
   var usados = {};
 
+  var porConteudo = {};
+  var porValor = {};
+  transacoesExistentes.forEach(function (t) {
+    if (t.origem === 'manual') return;
+    var kc = chaveConteudoTransacao(t);
+    (porConteudo[kc] = porConteudo[kc] || []).push(t);
+    var kv = chaveValorTransacao(t);
+    (porValor[kv] = porValor[kv] || []).push(t);
+  });
+  var consumidos = {};
+
+  function pegarNaoConsumido(lista) {
+    if (!lista) return null;
+    for (var i = 0; i < lista.length; i++) {
+      if (!consumidos[lista[i].id]) return lista[i];
+    }
+    return null;
+  }
+
   return transacoesImportadas.map(function (imp) {
     if (imp.fitid && fitidsExistentes[imp.fitid]) {
       return { importada: imp, status: 'ja_importado' };
+    }
+    var igual = pegarNaoConsumido(porConteudo[chaveConteudoTransacao(imp)]);
+    if (igual) {
+      consumidos[igual.id] = true;
+      return { importada: imp, status: 'ja_importado', duplicadoDe: igual };
     }
     var candidatos = candidatosManuais.filter(function (m) {
       if (usados[m.id]) return false;
@@ -2120,6 +2168,11 @@ function sugerirReconciliacao(transacoesImportadas, transacoesExistentes) {
     }
     if (candidatos.length > 1) {
       return { importada: imp, status: 'multiplos_candidatos', candidatos: candidatos };
+    }
+    var parecido = pegarNaoConsumido(porValor[chaveValorTransacao(imp)]);
+    if (parecido) {
+      consumidos[parecido.id] = true;
+      return { importada: imp, status: 'provavel_duplicado', candidato: parecido };
     }
     return { importada: imp, status: 'novo' };
   });
@@ -2195,6 +2248,7 @@ function processarMultiplosArquivos(files) {
   var promessasDiretas = arquivosDiretos.map(function (item) { return processarArquivoDireto(item.file, item.ext); });
 
   Promise.all(promessasDiretas).then(function (resultados) {
+    resultados.forEach(function (arr, ai) { arr.forEach(function (it) { it._arq = 'd' + ai; }); });
     var itensDiretos = [].concat.apply([], resultados);
 
     if (arquivosComMapeamento.length === 0) {
@@ -2296,6 +2350,7 @@ function confirmarMapeamentoCSV() {
   });
 
   Promise.all(promessas).then(function (arrays) {
+    arrays.forEach(function (arr, ai) { arr.forEach(function (it) { it._arq = 'm' + ai; }); });
     var itensMapeados = [].concat.apply([], arrays);
     var itensDiretos = IMPORT_STATE._itensDiretosAcumulados || [];
     var todosItens = itensDiretos.concat(itensMapeados);
@@ -2323,14 +2378,29 @@ function prosseguirComItens(itensBrutos, contaId) {
     itensFiltrados.push(itensBrutos[i]);
   }
 
-  // remove duplicatas dentro do próprio lote (ex: mesmo mês presente em dois arquivos selecionados juntos)
-  var vistos = {};
+  // remove duplicatas dentro do próprio lote.
+  // Com FITID: um por FITID. Sem FITID (faturas/CSV): compras idênticas no MESMO arquivo são legítimas
+  // (ex.: duas compras de R$ 70 no mesmo dia); só descarta o excedente quando o mesmo mês aparece em arquivos diferentes.
+  var vistosFitid = {};
+  var contagemPorArq = {};   // chave -> { arq -> quantidade }
+  var aceitosPorChave = {};  // chave -> quantos já aceitos
   var semDuplicataInterna = [];
   for (var k = 0; k < itensFiltrados.length; k++) {
     var it = itensFiltrados[k];
-    var chaveDedup = it.fitid || (it.data + '|' + it.valor.toFixed(2) + '|' + it.descricao);
-    if (vistos[chaveDedup]) continue;
-    vistos[chaveDedup] = true;
+    if (it.fitid) {
+      if (vistosFitid[it.fitid]) continue;
+      vistosFitid[it.fitid] = true;
+      semDuplicataInterna.push(it);
+      continue;
+    }
+    var chaveC = chaveConteudoTransacao(it);
+    var arq = it._arq || 'x';
+    if (!contagemPorArq[chaveC]) contagemPorArq[chaveC] = {};
+    contagemPorArq[chaveC][arq] = (contagemPorArq[chaveC][arq] || 0) + 1;
+    var maxPorArq = 0;
+    for (var a in contagemPorArq[chaveC]) if (contagemPorArq[chaveC][a] > maxPorArq) maxPorArq = contagemPorArq[chaveC][a];
+    if ((aceitosPorChave[chaveC] || 0) >= maxPorArq) continue;
+    aceitosPorChave[chaveC] = (aceitosPorChave[chaveC] || 0) + 1;
     semDuplicataInterna.push(it);
   }
   itensFiltrados = semDuplicataInterna;
@@ -2398,7 +2468,7 @@ function prosseguirComItens(itensBrutos, contaId) {
         subcategoria: auto.subcategoria || (r.candidato ? r.candidato.subcategoria : null) || null,
         viaRegraAprendida: !!regraAprendida,
         aprenderRegra: false,
-        selecionado: r.status !== 'ja_importado',
+        selecionado: r.status !== 'ja_importado' && r.status !== 'provavel_duplicado',
         acao: r.status === 'sugestao_merge' ? 'mesclar' : 'importar'
       };
     });
@@ -2420,6 +2490,7 @@ function renderRevisaoImportacao() {
   var nNovo = itens.filter(function (i) { return i.status === 'novo'; }).length;
   var nMerge = itens.filter(function (i) { return i.status === 'sugestao_merge'; }).length;
   var nMulti = itens.filter(function (i) { return i.status === 'multiplos_candidatos'; }).length;
+  var nProv = itens.filter(function (i) { return i.status === 'provavel_duplicado'; }).length;
 
   var html = '<div class="card">';
   html += '<div class="card-title">Revisar antes de importar</div>';
@@ -2429,7 +2500,8 @@ function renderRevisaoImportacao() {
   html += '<div class="resumo-chip"><b>' + nNovo + '</b>novos</div>';
   html += '<div class="resumo-chip"><b>' + nMerge + '</b>sugestões de mesclagem</div>';
   if (nMulti > 0) html += '<div class="resumo-chip"><b>' + nMulti + '</b>com múltiplos candidatos</div>';
-  if (jaImportados > 0) html += '<div class="resumo-chip"><b>' + jaImportados + '</b>já importados (ignorados)</div>';
+  if (nProv > 0) html += '<div class="resumo-chip"><b>' + nProv + '</b>prováveis duplicados (desmarcados)</div>';
+  if (jaImportados > 0) html += '<div class="resumo-chip"><b>' + jaImportados + '</b>já existem — não serão duplicados</div>';
   if (IMPORT_STATE.pagamentosIgnorados > 0) html += '<div class="resumo-chip"><b>' + IMPORT_STATE.pagamentosIgnorados + '</b>pagtos de fatura ignorados</div>';
   html += '</div>';
 
@@ -2466,6 +2538,8 @@ function renderLinhaRevisao(item) {
     html += '<span class="status-badge status-merge">🔗 combina com: ' + (item.candidato.descricao || getCategoriaNomeSafe(item.candidato.categoria)) + ' (' + isoParaBR(item.candidato.data) + ')</span>';
   } else if (item.status === 'multiplos_candidatos') {
     html += '<span class="status-badge status-multi">⚠️ múltiplos candidatos</span>';
+  } else if (item.status === 'provavel_duplicado') {
+    html += '<span class="status-badge status-multi">⚠️ parece já existir: ' + (item.candidato ? (item.candidato.descricao || '') + ' (' + isoParaBR(item.candidato.data) + ')' : '') + ' — marque só se for outra compra</span>';
   }
   if (item.viaRegraAprendida) html += '<span class="status-badge" style="background:var(--purple-l);color:var(--purple);">🧠 categoria por regra aprendida</span>';
   html += '</div>';
@@ -2481,7 +2555,7 @@ function renderLinhaRevisao(item) {
     html += '</select></div>';
   }
 
-  if (item.status === 'novo' || item.status === 'multiplos_candidatos') {
+  if (item.status === 'novo' || item.status === 'multiplos_candidatos' || item.status === 'provavel_duplicado') {
     html += '<div class="rev-campos">';
     html += selectQuemInline(item.tempId, item.quem);
     html += selectGrupoInline(item.tempId, item.grupo);
@@ -4649,6 +4723,183 @@ function ligarTooltipSvg(id) {
     }
   });
 }
+
+/* ==================================================================== */
+/* ==================== FERRAMENTA: LANÇAMENTOS DUPLICADOS ============= */
+/* ==================================================================== */
+
+var DUP_STATE = { grupos: [], carregando: false, ignorados: {}, buscou: false };
+
+function dupCarregarIgnorados() {
+  try {
+    var raw = localStorage.getItem('ff_dup_ok');
+    DUP_STATE.ignorados = raw ? JSON.parse(raw) : {};
+  } catch (e) { DUP_STATE.ignorados = {}; }
+}
+function dupSalvarIgnorados() {
+  try { localStorage.setItem('ff_dup_ok', JSON.stringify(DUP_STATE.ignorados)); } catch (e) {}
+}
+
+function dupPrioridade(t) {
+  var o = t.origem;
+  var base = o === 'mesclado' ? 0 : o === 'manual' ? 1 : o === 'migrado' ? 2 : o === 'historico' ? 3 : 4;
+  return base;
+}
+
+function dupEscolherManter(itens) {
+  var ord = itens.slice().sort(function (a, b) {
+    var pa = dupPrioridade(a), pb = dupPrioridade(b);
+    if (pa !== pb) return pa - pb;
+    return (a.criadoEm || 0) - (b.criadoEm || 0);
+  });
+  return ord[0];
+}
+
+function procurarDuplicados() {
+  var fb = window._fb;
+  if (DUP_STATE.carregando) return;
+  DUP_STATE.carregando = true;
+  dupCarregarIgnorados();
+  var wrap = document.getElementById('dupWrap');
+  if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Procurando em todos os lançamentos...</div>';
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
+  fb.getDocs(col).then(function (snap) {
+    var porChave = {};
+    var total = 0;
+    snap.forEach(function (d) {
+      var t = d.data(); t.id = d.id; total++;
+      if (!t.data || typeof t.valor !== 'number') return;
+      var k = (t.conta || '') + '|' + chaveConteudoTransacao(t);
+      (porChave[k] = porChave[k] || []).push(t);
+    });
+    var grupos = [];
+    for (var k in porChave) {
+      if (porChave[k].length < 2) continue;
+      if (DUP_STATE.ignorados[k]) continue;
+      var itens = porChave[k];
+      var origens = {};
+      for (var i = 0; i < itens.length; i++) origens[itens[i].origem || 'manual'] = (origens[itens[i].origem || 'manual'] || 0) + 1;
+      var nOrig = Object.keys(origens).length;
+      grupos.push({ chave: k, itens: itens, origens: origens, misto: nOrig > 1 });
+    }
+    grupos.sort(function (a, b) { return a.itens[0].data < b.itens[0].data ? 1 : -1; });
+    DUP_STATE.grupos = grupos;
+    DUP_STATE.buscou = true;
+    DUP_STATE.totalDocs = total;
+    DUP_STATE.carregando = false;
+    renderDuplicados();
+  }).catch(function (e) {
+    console.error(e);
+    DUP_STATE.carregando = false;
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>Erro: ' + escMeta(e.message) + '</div>';
+  });
+}
+window.procurarDuplicados = procurarDuplicados;
+
+function dupNomeOrigem(o) {
+  var m = { importado: '🏦 importado', migrado: '🚚 migrado', manual: '📝 manual', mesclado: '🔗 mesclado', historico: '📜 histórico' };
+  return m[o] || o;
+}
+
+function renderDuplicados() {
+  var wrap = document.getElementById('dupWrap');
+  if (!wrap) return;
+  var gs = DUP_STATE.grupos;
+  if (gs.length === 0) {
+    wrap.innerHTML = '<div class="empty-state"><div class="ic">✅</div>Nenhum lançamento duplicado encontrado (' + (DUP_STATE.totalDocs || 0) + ' lançamentos verificados).</div>';
+    return;
+  }
+  var extras = 0, extrasMistos = 0, gruposMistos = 0;
+  for (var i = 0; i < gs.length; i++) {
+    extras += gs[i].itens.length - 1;
+    if (gs[i].misto) { extrasMistos += gs[i].itens.length - 1; gruposMistos++; }
+  }
+  var html = '<div class="resumo-import">';
+  html += '<div class="resumo-chip"><b>' + gs.length + '</b>grupos suspeitos</div>';
+  html += '<div class="resumo-chip"><b>' + extras + '</b>lançamentos a mais</div>';
+  html += '</div>';
+  html += '<div class="card-sub">Cada grupo tem lançamentos idênticos (mesma data, valor e descrição). Se foram duas compras de verdade no mesmo dia, toque em "É legítimo". Caso contrário, remova os extras — o app mantém o melhor (mesclado/manual/migrado antes de importado).</div>';
+  if (gruposMistos > 0) {
+    html += '<div class="btn-row"><button class="btn btn-ghost" onclick="removerExtrasMistos()">🧹 Remover extras dos ' + gruposMistos + ' grupos com origens diferentes (' + extrasMistos + ' lançamentos)</button></div>';
+    html += '<div class="card-sub" style="margin-top:6px;">Origens diferentes (ex.: migrado + importado) quase sempre é o mesmo lançamento entrando duas vezes.</div>';
+  }
+  var limite = Math.min(gs.length, 60);
+  for (var g = 0; g < limite; g++) {
+    var gr = gs[g];
+    var t0 = gr.itens[0];
+    var conta = getContaById(t0.conta);
+    html += '<div class="rev-row"><div class="rev-top"><div class="rev-mid">';
+    html += '<div class="rev-desc">' + escMeta(t0.descricao) + '</div>';
+    html += '<div class="rev-meta">' + isoParaBR(t0.data) + ' · ' + (conta ? escMeta(conta.nome) : '') + ' · ' + gr.itens.length + ' lançamentos iguais</div>';
+    html += '</div><div class="lanc-valor ' + (t0.tipo === 'despesa' ? 'despesa' : 'receita') + '">' + (t0.tipo === 'despesa' ? '- ' : '+ ') + fmtBRL(t0.valor) + '</div></div>';
+    html += '<div class="rev-status">';
+    for (var o in gr.origens) html += '<span class="status-badge ' + (gr.misto ? 'status-merge' : 'status-multi') + '">' + gr.origens[o] + '× ' + dupNomeOrigem(o) + '</span>';
+    html += '</div>';
+    html += '<div class="rev-campos"><button type="button" class="pill pill-sub" onclick="removerExtrasGrupo(' + g + ')">🗑️ Manter 1, remover ' + (gr.itens.length - 1) + '</button>';
+    html += '<button type="button" class="pill pill-sub" onclick="dupMarcarLegitimo(' + g + ')">É legítimo</button></div>';
+    html += '</div>';
+  }
+  if (gs.length > limite) html += '<div class="card-sub">Mostrando os ' + limite + ' mais recentes de ' + gs.length + ' grupos. Resolva estes e procure de novo.</div>';
+  wrap.innerHTML = html;
+}
+
+function dupApagar(listaParaApagar) {
+  var fb = window._fb;
+  var TAM = 400;
+  var feitos = 0;
+  function lote(i) {
+    if (i >= listaParaApagar.length) return Promise.resolve();
+    var batch = fb.writeBatch(fb.db);
+    var fatia = listaParaApagar.slice(i, i + TAM);
+    for (var j = 0; j < fatia.length; j++) {
+      batch.delete(fb.doc(fb.db, 'familias', FAMILIA_ID, 'transacoes', fatia[j].id));
+    }
+    return batch.commit().then(function () { feitos += fatia.length; return lote(i + TAM); });
+  }
+  return lote(0).then(function () { return feitos; });
+}
+
+function removerExtrasGrupo(idx) {
+  var gr = DUP_STATE.grupos[idx];
+  if (!gr) return;
+  var manter = dupEscolherManter(gr.itens);
+  var apagar = gr.itens.filter(function (t) { return t.id !== manter.id; });
+  if (!confirm('Remover ' + apagar.length + ' lançamento(s) duplicado(s) de "' + gr.itens[0].descricao + '"? Fica 1 (' + dupNomeOrigem(manter.origem || 'manual') + ').')) return;
+  dupApagar(apagar).then(function () {
+    DUP_STATE.grupos.splice(idx, 1);
+    renderDuplicados();
+    atualizarStatsMes();
+  }).catch(function (e) { alert('Erro ao remover: ' + e.message); });
+}
+window.removerExtrasGrupo = removerExtrasGrupo;
+
+function dupMarcarLegitimo(idx) {
+  var gr = DUP_STATE.grupos[idx];
+  if (!gr) return;
+  DUP_STATE.ignorados[gr.chave] = true;
+  dupSalvarIgnorados();
+  DUP_STATE.grupos.splice(idx, 1);
+  renderDuplicados();
+}
+window.dupMarcarLegitimo = dupMarcarLegitimo;
+
+function removerExtrasMistos() {
+  var apagar = [];
+  var grs = DUP_STATE.grupos.filter(function (g) { return g.misto; });
+  for (var i = 0; i < grs.length; i++) {
+    var manter = dupEscolherManter(grs[i].itens);
+    for (var j = 0; j < grs[i].itens.length; j++) if (grs[i].itens[j].id !== manter.id) apagar.push(grs[i].itens[j]);
+  }
+  if (apagar.length === 0) return;
+  if (!confirm('Remover ' + apagar.length + ' lançamentos duplicados de ' + grs.length + ' grupos com origens diferentes? Em cada grupo fica 1 (mesclado/manual/migrado antes de importado).')) return;
+  dupApagar(apagar).then(function (n) {
+    DUP_STATE.grupos = DUP_STATE.grupos.filter(function (g) { return !g.misto; });
+    renderDuplicados();
+    atualizarStatsMes();
+    alert(n + ' lançamentos removidos.');
+  }).catch(function (e) { alert('Erro ao remover: ' + e.message); });
+}
+window.removerExtrasMistos = removerExtrasMistos;
 
 /* ==================================================================== */
 /* ==================== ABA RECORRENTES ================================ */
