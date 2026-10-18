@@ -834,7 +834,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-10-18.5';
+var APP_VERSAO = '2026-10-18.6';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -2102,7 +2102,7 @@ function parseFaturaXLSX(arrayBuffer) {
     transacoes.push({
       data: dataISO,
       valor: Math.abs(valor),
-      tipo: valor < 0 ? 'despesa' : 'receita',
+      tipo: valor > 0 ? 'despesa' : 'receita',
       descricao: descricao,
       fitid: null,
       quemSugerido: quem,
