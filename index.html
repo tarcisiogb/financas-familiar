@@ -410,6 +410,9 @@ body { background:var(--bg); }
 .dup-grupo.sel{opacity:1;border-color:var(--primary,#555);}
 .dup-grupo input{margin-top:4px;width:18px;height:18px;flex:none;}
 .dup-corpo{flex:1;min-width:0;}
+.nota-box{margin:4px 0 14px;padding-bottom:12px;border-bottom:1px dashed var(--border);}
+.nota-box .btn{width:100%;}
+.nota-resumo{margin-top:8px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--card);}
 </style>
 </head>
 <body>
@@ -463,6 +466,7 @@ body { background:var(--bg); }
       <div class="card">
         <div class="card-title">Novo lançamento</div>
         <div class="card-sub">Registre um gasto ou receita</div>
+        <div id="notaWrap"></div>
         <div id="formLancarWrap"></div>
       </div>
       <div id="metasStrip"></div>
@@ -791,6 +795,7 @@ var _dataModalContexto = null;
 /* ==================== INIT ==================== */
 window.onLoginOk = function () {
   atualizarStatsMes();
+  renderNotaBotao();
   renderFormLancamento('lancar');
   renderToggleVisualizacao();
   renderFiltrosLancamentos();
@@ -834,7 +839,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-10-18.6';
+var APP_VERSAO = '2026-10-18.8';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -1092,6 +1097,535 @@ window.onValorInput = onValorInput;
 window.onValorTotalInput = onValorTotalInput;
 window.onParcelasInput = onParcelasInput;
 window.onObsInput = onObsInput;
+
+/* ==================== FOTO DA NOTA (OCR no navegador + QR da NFC-e) ==================== */
+var NOTA_STATE = { worker: null, ocupado: false };
+var NOTA_URL_TESS = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+var NOTA_URL_JSQR = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+
+function notaSemAcento(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+function notaCarregarScript(url, globalName) {
+  return new Promise(function (resolve, reject) {
+    if (window[globalName]) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = url;
+    s.onload = function () { resolve(); };
+    s.onerror = function () { reject(new Error('Não consegui baixar o leitor de texto (sem internet?).')); };
+    document.head.appendChild(s);
+  });
+}
+
+function notaMsg(html) {
+  var el = document.getElementById('notaStatus');
+  if (el) el.innerHTML = html;
+}
+
+function renderNotaBotao() {
+  var wrap = document.getElementById('notaWrap');
+  if (!wrap) return;
+  var h = '<div class="nota-box">';
+  h += '<input type="file" id="inputNotaFoto" accept="image/*" style="display:none" onchange="onNotaFoto(event)">';
+  h += '<button type="button" class="btn btn-ghost" onclick="document.getElementById(\'inputNotaFoto\').click()">📷 Preencher com foto da nota</button>';
+  h += '<button type="button" class="btn btn-ghost" style="margin-top:8px;" onclick="abrirImportPrint()">📱 Importar print do cartão (Wallet)</button>';
+  h += '<div class="card-sub" style="margin-top:6px;">Foto: tire uma foto bem iluminada da nota ou cupom. O app lê valor, data e estabelecimento e você confere antes de salvar. Print: traz várias compras de uma vez. Nada é guardado além dos lançamentos.</div>';
+  h += '<div id="notaStatus"></div></div>';
+  wrap.innerHTML = h;
+}
+
+/* ---------- validações e parsers (funções puras, testáveis) ---------- */
+function notaCnpjValido(c) {
+  c = String(c || '').replace(/\D/g, '');
+  if (c.length !== 14 || /^(\d)\1+$/.test(c)) return false;
+  function dv(base) {
+    var pesos = base.length === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    var soma = 0;
+    for (var i = 0; i < base.length; i++) soma += parseInt(base.charAt(i), 10) * pesos[i];
+    var r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  }
+  var d1 = dv(c.substr(0, 12));
+  var d2 = dv(c.substr(0, 12) + d1);
+  return d1 === parseInt(c.charAt(12), 10) && d2 === parseInt(c.charAt(13), 10);
+}
+
+function notaParseQR(txt) {
+  var out = {};
+  var m = String(txt || '').match(/(\d{44})/);
+  if (m) {
+    out.chave = m[1];
+    var cnpj = m[1].substr(6, 14);
+    if (notaCnpjValido(cnpj)) out.cnpj = cnpj;
+    out.aamm = m[1].substr(2, 4);
+  }
+  return out;
+}
+
+function notaDinheiro(linha) {
+  var re = /(\d{1,3}(?:\.\d{3})+|\d+)[,.]\s?(\d{2})(?!\d)/g;
+  var out = [], m;
+  while ((m = re.exec(linha)) !== null) {
+    var v = parseFloat(m[1].replace(/\./g, '') + '.' + m[2]);
+    if (!isNaN(v) && v > 0) out.push(v);
+  }
+  return out;
+}
+
+function notaAcharTotal(texto) {
+  var linhas = notaSemAcento(texto).toUpperCase().split(/\r?\n/);
+  var excl = /SUB\s*-?\s*TOTAL|TROCO|DESCONTO|TRIBUT|IMPOSTO|ITENS|QTD|FEDERAL|ESTADUAL|MUNICIPAL|ICMS|ACRESC/;
+  var prio1 = /VALOR\s*(A\s*)?PAGAR|VALOR\s*TOTAL|TOTAL\s*A\s*PAGAR|VL\.?\s*TOTAL|TOTAL\s*(DA\s*)?(NOTA|COMPRA|CUPOM)|TOTAL\s*R\$/;
+  var prio2 = /\bTOTAL\b/;
+  function coletar(re) {
+    var cand = [];
+    for (var i = 0; i < linhas.length; i++) {
+      var l = linhas[i];
+      if (!re.test(l) || excl.test(l)) continue;
+      var v = notaDinheiro(l);
+      if (v.length === 0 && /(TOTAL|PAGAR)\s*(R\$)?\s*:?\s*$/.test(l) && i + 1 < linhas.length && !excl.test(linhas[i + 1])) v = notaDinheiro(linhas[i + 1]);
+      if (v.length) cand.push({ valor: v[v.length - 1], pagar: /PAGAR/.test(l) });
+    }
+    return cand;
+  }
+  var c = coletar(prio1);
+  if (c.length === 0) c = coletar(prio2);
+  if (c.length) {
+    for (var i = 0; i < c.length; i++) if (c[i].pagar) return { valor: c[i].valor, confianca: 'alta' };
+    return { valor: c[c.length - 1].valor, confianca: 'alta' };
+  }
+  var maior = 0;
+  for (var j = 0; j < linhas.length; j++) {
+    if (excl.test(linhas[j])) continue;
+    var vs = notaDinheiro(linhas[j]);
+    for (var k = 0; k < vs.length; k++) if (vs[k] > maior) maior = vs[k];
+  }
+  return maior > 0 ? { valor: maior, confianca: 'baixa' } : null;
+}
+
+function notaAcharData(texto, hojeISO) {
+  var linhas = String(texto || '').split(/\r?\n/);
+  var re = /(\d{2})[\/.\-](\d{2})[\/.\-](\d{4}|\d{2})(?!\d)/g;
+  var hoje = hojeISO || todayISO();
+  var anoHoje = parseInt(hoje.substr(0, 4), 10);
+  var cands = [];
+  for (var i = 0; i < linhas.length; i++) {
+    var m;
+    re.lastIndex = 0;
+    while ((m = re.exec(linhas[i])) !== null) {
+      var d = parseInt(m[1], 10), mo = parseInt(m[2], 10), a = parseInt(m[3], 10);
+      if (a < 100) a += 2000;
+      if (d < 1 || d > 31 || mo < 1 || mo > 12 || a < anoHoje - 3 || a > anoHoje + 1) continue;
+      var iso = a + '-' + (mo < 10 ? '0' : '') + mo + '-' + (d < 10 ? '0' : '') + d;
+      if (iso > hoje && diffEmDias(hoje, iso) > 3) continue;
+      cands.push({ iso: iso, emissao: /EMISS|DATA/.test(notaSemAcento(linhas[i]).toUpperCase()) });
+    }
+  }
+  if (cands.length === 0) return null;
+  for (var k = 0; k < cands.length; k++) if (cands[k].emissao) return cands[k].iso;
+  return cands[0].iso;
+}
+
+function notaAcharCNPJTexto(texto) {
+  var re = /(\d{2})\.?(\d{3})\.?(\d{3})\s?\/\s?(\d{4})\s?-?\s?(\d{2})/g;
+  var m;
+  while ((m = re.exec(String(texto || ''))) !== null) {
+    var c = m[1] + m[2] + m[3] + m[4] + m[5];
+    if (notaCnpjValido(c)) return c;
+  }
+  return null;
+}
+
+function notaTituloCase(s) {
+  return String(s || '').toLowerCase().replace(/(^|\s)([a-zà-ú])/g, function (x, a, b) { return a + b.toUpperCase(); }).replace(/\b(Ltda|Me|Epp|Sa|Eireli)\b/g, function (x) { return x.toUpperCase(); });
+}
+
+function notaAcharNome(texto) {
+  var linhas = String(texto || '').split(/\r?\n/);
+  var ignorar = /CNPJ|CPF|DANFE|NFC|NOTA FISCAL|DOCUMENTO AUXILIAR|CUPOM|CONSUMIDOR|INSCR|ENDERECO|^RUA |^AV|^AVENIDA|^TRAV|^ALAMEDA|CEP|FONE|TEL|WWW|HTTP/;
+  var vistos = 0;
+  for (var i = 0; i < linhas.length && vistos < 8; i++) {
+    var l = linhas[i].trim();
+    if (!l) continue;
+    vistos++;
+    var u = notaSemAcento(l).toUpperCase();
+    if (ignorar.test(u)) continue;
+    var letras = (u.match(/[A-Z]/g) || []).length;
+    if (letras < 4 || letras / u.replace(/\s/g, '').length < 0.65) continue;
+    return notaTituloCase(l.replace(/[^A-Za-zÀ-ú0-9&\-\.\s]/g, '').replace(/\s+/g, ' ').trim());
+  }
+  return null;
+}
+
+function notaCategoriaPorCNAE(txt) {
+  var d = notaSemAcento(txt).toUpperCase();
+  if (/RESTAURANTE|LANCHONETE|BAR\b|PIZZARIA|CAFETERIA|SORVETERIA/.test(d)) return { categoria: 'lazer', subcategoria: 'Restaurante', grupo: 'pontual' };
+  if (/SUPERMERCADO|HIPERMERCADO|MERCEARIA|HORTIFRUTI|ACOUGUE|PADARIA/.test(d)) return { categoria: 'supermercado', grupo: 'recorrente' };
+  if (/FARMACIA|DROGARIA|MEDICAMENTO/.test(d)) return { categoria: 'beleza-saude', subcategoria: 'Farmácia', grupo: 'recorrente' };
+  if (/COMBUSTIVE|POSTO/.test(d)) return { categoria: 'carro', subcategoria: 'Combustível', grupo: 'recorrente' };
+  if (/ESTACIONAMENTO/.test(d)) return { categoria: 'carro', subcategoria: 'Estacionamento', grupo: 'pontual' };
+  if (/VESTUARIO|CALCADO|ROUPA|CONFECC/.test(d)) return { categoria: 'vestuario', grupo: 'pontual' };
+  return null;
+}
+
+function notaConsultarCNPJ(cnpj) {
+  return new Promise(function (resolve) {
+    var temp = setTimeout(function () { resolve(null); }, 7000);
+    fetch('https://brasilapi.com.br/api/cnpj/v1/' + cnpj).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (j) { clearTimeout(temp); resolve(j); }).catch(function () { clearTimeout(temp); resolve(null); });
+  });
+}
+
+/* ---------- imagem: canvas, realce, QR, OCR ---------- */
+function notaImagemParaCanvas(file, larguraMax) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth, h = img.naturalHeight;
+      var esc = Math.min(1, larguraMax / Math.max(w, 1));
+      if (w * h * esc * esc > 9000000) esc = Math.sqrt(9000000 / (w * h));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w * esc));
+      c.height = Math.max(1, Math.round(h * esc));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('Não consegui abrir essa imagem.')); };
+    img.src = url;
+  });
+}
+
+function notaRealcar(canvas) {
+  var c = document.createElement('canvas');
+  c.width = canvas.width; c.height = canvas.height;
+  var ctx = c.getContext('2d');
+  ctx.drawImage(canvas, 0, 0);
+  var id = ctx.getImageData(0, 0, c.width, c.height);
+  var d = id.data, hist = new Array(256), i;
+  for (i = 0; i < 256; i++) hist[i] = 0;
+  for (i = 0; i < d.length; i += 4) {
+    var g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    d[i] = d[i + 1] = d[i + 2] = g;
+    hist[g]++;
+  }
+  var total = d.length / 4, acc = 0, lo = 0, hi = 255;
+  for (i = 0; i < 256; i++) { acc += hist[i]; if (acc >= total * 0.02) { lo = i; break; } }
+  acc = 0;
+  for (i = 255; i >= 0; i--) { acc += hist[i]; if (acc >= total * 0.02) { hi = i; break; } }
+  if (hi - lo < 30) { lo = 0; hi = 255; }
+  var fator = 255 / (hi - lo);
+  var somaLum = 0;
+  for (i = 0; i < 256; i++) somaLum += hist[i] * i;
+  var escuro = (somaLum / total) < 110;
+  for (i = 0; i < d.length; i += 4) {
+    var v = (d[i] - lo) * fator;
+    v = v < 0 ? 0 : v > 255 ? 255 : v;
+    if (escuro) v = 255 - v;
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c;
+}
+
+function notaLerQR(canvas) {
+  var viaDetector = Promise.resolve(null);
+  if (window.BarcodeDetector) {
+    try {
+      viaDetector = new window.BarcodeDetector({ formats: ['qr_code'] }).detect(canvas).then(function (r) {
+        return r && r.length ? r[0].rawValue : null;
+      }).catch(function () { return null; });
+    } catch (e) { viaDetector = Promise.resolve(null); }
+  }
+  return viaDetector.then(function (txt) {
+    if (txt) return txt;
+    return notaCarregarScript(NOTA_URL_JSQR, 'jsQR').then(function () {
+      var ctx = canvas.getContext('2d');
+      var id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      var r = window.jsQR(id.data, id.width, id.height);
+      return r ? r.data : null;
+    }).catch(function () { return null; });
+  });
+}
+
+function notaObterWorker() {
+  if (NOTA_STATE.worker) return Promise.resolve(NOTA_STATE.worker);
+  return notaCarregarScript(NOTA_URL_TESS, 'Tesseract').then(function () {
+    return window.Tesseract.createWorker('por', 1, {
+      logger: function (m) {
+        if (m && m.status === 'recognizing text') notaMsg('<div class="empty-state" style="padding:12px;"><div class="ic">🔎</div>Lendo a nota… ' + Math.round((m.progress || 0) * 100) + '%</div>');
+      }
+    });
+  }).then(function (w) {
+    return w.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' }).then(function () {
+      NOTA_STATE.worker = w;
+      return w;
+    });
+  });
+}
+
+/* ---------- orquestração ---------- */
+function onNotaFoto(evt) {
+  var file = evt.target.files && evt.target.files[0];
+  evt.target.value = '';
+  if (!file || NOTA_STATE.ocupado) return;
+  NOTA_STATE.ocupado = true;
+  notaMsg('<div class="empty-state" style="padding:12px;"><div class="ic">⏳</div>Preparando a imagem…</div>');
+
+  var resultado = { texto: '', qr: {} };
+  var promessaRegras = REGRAS_CACHE ? Promise.resolve(REGRAS_CACHE) : carregarRegrasCache();
+
+  notaImagemParaCanvas(file, 1800).then(function (canvas) {
+    return notaLerQR(canvas).then(function (qrTxt) {
+      resultado.qr = notaParseQR(qrTxt);
+      notaMsg('<div class="empty-state" style="padding:12px;"><div class="ic">⏳</div>Baixando o leitor de texto (só na 1ª vez, pode levar alguns segundos)…</div>');
+      return notaObterWorker();
+    }).then(function (worker) {
+      notaMsg('<div class="empty-state" style="padding:12px;"><div class="ic">🔎</div>Lendo a nota…</div>');
+      return worker.recognize(notaRealcar(canvas));
+    }).then(function (res) {
+      resultado.texto = (res && res.data && res.data.text) || '';
+    }).catch(function (e) {
+      console.error(e);
+      resultado.erroOCR = e.message || String(e);
+    });
+  }).then(function () {
+    var cnpj = resultado.qr.cnpj || notaAcharCNPJTexto(resultado.texto);
+    return Promise.all([cnpj ? notaConsultarCNPJ(cnpj) : Promise.resolve(null), promessaRegras]).then(function (r) {
+      return notaMontarResultado(resultado, cnpj, r[0], r[1] || {});
+    });
+  }).then(function (final) {
+    notaAplicarAoForm(final);
+    notaMostrarResumo(final, resultado);
+  }).catch(function (e) {
+    console.error(e);
+    notaMsg('<div class="empty-state" style="padding:12px;"><div class="ic">⚠️</div>' + escMeta(e.message || String(e)) + '</div>');
+  }).then(function () { NOTA_STATE.ocupado = false; });
+}
+window.onNotaFoto = onNotaFoto;
+
+function notaMontarResultado(res, cnpj, dadosCnpj, regras) {
+  var out = { cnpj: cnpj || null, fontes: {} };
+  var total = res.texto ? notaAcharTotal(res.texto) : null;
+  if (total) { out.valor = total.valor; out.confValor = total.confianca; }
+  var data = res.texto ? notaAcharData(res.texto) : null;
+  if (data) out.data = data;
+  var nome = null, cnae = '';
+  if (dadosCnpj) {
+    nome = dadosCnpj.nome_fantasia || dadosCnpj.razao_social || null;
+    cnae = dadosCnpj.cnae_fiscal_descricao || '';
+    if (nome) { out.fontes.nome = 'CNPJ'; nome = notaTituloCase(nome); }
+  }
+  if (!nome && res.texto) { nome = notaAcharNome(res.texto); if (nome) out.fontes.nome = 'texto'; }
+  if (nome) out.nome = nome;
+  if (nome) {
+    var regra = regras[assinaturaDescricao(nome)];
+    var auto = regra || detectarAutoCategoria(nome) || notaCategoriaPorCNAE(nome + ' ' + cnae) || null;
+    if (auto && auto.categoria && getCategoriaById(auto.categoria) && categoriasParaTipo('despesa').indexOf(getCategoriaById(auto.categoria)) !== -1) {
+      out.categoria = auto.categoria;
+      out.subcategoria = auto.subcategoria || null;
+      out.grupo = auto.grupo || 'pontual';
+      out.viaRegra = !!regra;
+    }
+  }
+  return out;
+}
+
+function notaAplicarAoForm(r) {
+  var st = FORM_STATE.lancar;
+  st.tipo = 'despesa';
+  st.parcelado = false;
+  if (r.valor) st.valor = r.valor;
+  if (r.data) st.data = r.data;
+  if (r.nome) st.observacao = r.nome;
+  if (r.categoria) {
+    st.categoria = r.categoria;
+    st.subcategoria = r.subcategoria || null;
+    if (r.grupo) st.grupo = r.grupo;
+  }
+  renderFormLancamento('lancar');
+}
+
+function notaMostrarResumo(r, res) {
+  function linha(rot, ok, txt) {
+    return '<div class="rev-meta">' + (ok ? '✅ ' : '⚠️ ') + rot + ': <b>' + txt + '</b></div>';
+  }
+  var h = '<div class="nota-resumo">';
+  h += '<div class="card-sub" style="margin:8px 0 4px;"><b>Confira antes de salvar</b> — o que o app entendeu:</div>';
+  h += linha('Valor', !!r.valor, r.valor ? fmtBRL(r.valor) + (r.confValor === 'baixa' ? ' (maior valor da nota, confira!)' : '') : 'não encontrei — digite abaixo');
+  h += linha('Data', !!r.data, r.data ? isoParaBR(r.data) : 'não encontrei — ficou a data de hoje');
+  h += linha('Estabelecimento', !!r.nome, r.nome ? escMeta(r.nome) + (r.fontes.nome === 'CNPJ' ? ' (pelo CNPJ)' : ' (lido do cupom)') : 'não encontrei');
+  var cat = r.categoria ? getCategoriaById(r.categoria) : null;
+  h += linha('Categoria sugerida', !!cat, cat ? cat.emoji + ' ' + cat.nome + (r.subcategoria ? ' › ' + escMeta(r.subcategoria) : '') + (r.viaRegra ? ' (já aprendida)' : '') : 'escolha abaixo');
+  h += '<div class="rev-meta">Falta escolher: <b>quem</b> e <b>conta/cartão</b>.</div>';
+  if (res.erroOCR) h += '<div class="rev-meta">⚠️ Leitor de texto indisponível: ' + escMeta(res.erroOCR) + '</div>';
+  if (res.texto) h += '<details style="margin-top:6px;"><summary class="rev-meta" style="cursor:pointer;">Ver texto lido</summary><pre style="white-space:pre-wrap;font-size:11px;color:var(--muted);">' + escMeta(res.texto) + '</pre></details>';
+  h += '</div>';
+  notaMsg(h);
+  var topo = document.getElementById('notaWrap');
+  if (topo && topo.scrollIntoView) topo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* ==================== PRINT DO CARTÃO (Apple Wallet / app do banco) ==================== */
+function notaAddDias(iso, n) {
+  var d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  var mm = String(d.getMonth() + 1); if (mm.length < 2) mm = '0' + mm;
+  var dd = String(d.getDate()); if (dd.length < 2) dd = '0' + dd;
+  return d.getFullYear() + '-' + mm + '-' + dd;
+}
+
+// interpreta "Há 9 minutos", "Ontem", "Sexta-feira", "12/10/2026", "12 de out." -> ISO (ou null)
+function notaDataRelativa(linha, hojeISO) {
+  var u = notaSemAcento(linha).toUpperCase().trim();
+  if (!u) return null;
+  if (/^H[AÁ]\s*\d+\s*(MIN|HORA|H\b|SEG)|^AGORA|^HOJE|^HA\s+\d+/.test(u)) return hojeISO;
+  if (/^ONTEM/.test(u)) return notaAddDias(hojeISO, -1);
+  var dias = ['DOMINGO', 'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'];
+  for (var i = 0; i < dias.length; i++) {
+    if (u.indexOf(dias[i]) === 0) {
+      var hojeDow = new Date(hojeISO + 'T12:00:00').getDay();
+      var delta = (hojeDow - i + 7) % 7;
+      if (delta === 0) delta = 7;
+      return notaAddDias(hojeISO, -delta);
+    }
+  }
+  var m = u.match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?/);
+  var ano = parseInt(hojeISO.substr(0, 4), 10);
+  if (m) {
+    var a = m[3] ? parseInt(m[3], 10) : ano;
+    if (a < 100) a += 2000;
+    var iso1 = a + '-' + (m[2].length < 2 ? '0' : '') + m[2] + '-' + (m[1].length < 2 ? '0' : '') + m[1];
+    if (!m[3] && iso1 > hojeISO) iso1 = (a - 1) + iso1.substr(4);
+    return iso1;
+  }
+  var meses = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+  var m2 = u.match(/^(\d{1,2})\s+DE\s+([A-Z]{3})[A-Z]*\.?(?:\s+DE\s+(\d{4}))?/);
+  if (m2) {
+    var mi = meses.indexOf(m2[2]);
+    if (mi !== -1) {
+      var a2 = m2[3] ? parseInt(m2[3], 10) : ano;
+      var iso2 = a2 + '-' + (mi + 1 < 10 ? '0' : '') + (mi + 1) + '-' + (m2[1].length < 2 ? '0' : '') + m2[1];
+      if (!m2[3] && iso2 > hojeISO) iso2 = (a2 - 1) + iso2.substr(4);
+      return iso2;
+    }
+  }
+  return null;
+}
+
+// texto OCR de um print (lista de transações) -> [{data, valor, tipo, descricao, cidade}]
+function parseWalletTexto(texto, hojeISO) {
+  hojeISO = hojeISO || todayISO();
+  var linhas = String(texto || '').split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+  var itens = [], atual = null, pendente = '';
+  function fechar() { if (atual) { itens.push(atual); atual = null; } }
+  for (var i = 0; i < linhas.length; i++) {
+    var l = linhas[i];
+    var m = l.match(/([+\-–−])?\s*R[\$S]\s?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})(?!\d)/);
+    if (m) {
+      fechar();
+      var nome = l.slice(0, m.index).replace(/[›>»|©]+\s*$/, '').replace(/^[\s›>»|©•]+/, '').replace(/\s+/g, ' ').trim();
+      if (!nome && pendente) nome = pendente;
+      var valor = parseFloat(m[2].replace(/\./g, '').replace(',', '.'));
+      atual = { descricao: nome, valor: valor, tipo: (m[1] === '+') ? 'receita' : 'despesa', data: null, cidade: null };
+      pendente = '';
+      continue;
+    }
+    if (atual) {
+      var d = notaDataRelativa(l, hojeISO);
+      if (d && !atual.data) { atual.data = d; fechar(); continue; }
+      if (!atual.cidade && /,\s*[A-Z]{2}\s*$/.test(l)) { atual.cidade = l; continue; }
+    } else {
+      pendente = l;
+    }
+  }
+  fechar();
+  return itens.filter(function (it) { return it.descricao && it.valor > 0; }).map(function (it) {
+    it.data = it.data || hojeISO;
+    return it;
+  });
+}
+
+function abrirImportPrint() {
+  mudarTab('importar');
+  selecionarModoImport('print');
+}
+window.abrirImportPrint = abrirImportPrint;
+
+function renderPillsContaPrint() {
+  var el = document.getElementById('pills-conta-print');
+  if (!el) return;
+  var cartoes = CONTAS.filter(function (c) { return c.tipo === 'cartao'; });
+  var html = '';
+  for (var i = 0; i < cartoes.length; i++) {
+    var c = cartoes[i];
+    var on = IMPORT_STATE.contaPrint === c.id ? ' on' : '';
+    html += '<button type="button" class="pill' + on + '" onclick="selecionarContaPrint(\'' + c.id + '\')">💳 ' + c.nome + '</button>';
+  }
+  el.innerHTML = html;
+}
+
+function selecionarContaPrint(id) {
+  IMPORT_STATE.contaPrint = id;
+  try { localStorage.setItem('ff_conta_print', id); } catch (e) {}
+  renderImportarTab();
+}
+window.selecionarContaPrint = selecionarContaPrint;
+
+function processarPrintsWallet(files) {
+  var st = document.getElementById('statusProcessamento');
+  function msg(h) { if (st) st.innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⏳</div>' + h + '</div>'; }
+  if (!IMPORT_STATE.contaPrint) {
+    if (st) st.innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⚠️</div>Escolha o cartão do print antes de enviar a imagem.</div>';
+    return;
+  }
+  var quem = window._userEmail === 'tarcisiogb@gmail.com' ? 'tarcisio' : 'aline';
+  var hoje = todayISO();
+  var todos = [];
+  var textos = [];
+  msg('Baixando o leitor de texto (só na 1ª vez, pode levar alguns segundos)…');
+  notaObterWorker().then(function (worker) {
+    var cadeia = Promise.resolve();
+    files.forEach(function (file, idx) {
+      cadeia = cadeia.then(function () {
+        msg('Lendo print ' + (idx + 1) + ' de ' + files.length + '…');
+        return notaImagemParaCanvas(file, 1400).then(function (canvas) {
+          return worker.recognize(notaRealcar(canvas));
+        }).then(function (res) {
+          var txt = (res && res.data && res.data.text) || '';
+          textos.push(txt);
+          var itens = parseWalletTexto(txt, hoje);
+          itens.forEach(function (it) {
+            todos.push({ data: it.data, valor: it.valor, tipo: it.tipo, descricao: it.descricao, fitid: null, quemSugerido: quem, fonte: 'wallet', _arq: 'p' + idx });
+          });
+        });
+      });
+    });
+    return cadeia;
+  }).then(function () {
+    IMPORT_STATE.arquivoNome = files.length === 1 ? files[0].name : files.length + ' prints';
+    IMPORT_STATE.textoPrint = textos.join('\n----\n');
+    if (todos.length === 0) {
+      if (st) st.innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">📭</div>Não consegui ler lançamentos nesse print. Confira se aparecem nome e valor (R$) de cada compra.' + notaDetalheTexto(IMPORT_STATE.textoPrint) + '</div>';
+      return;
+    }
+    prosseguirComItens(todos, IMPORT_STATE.contaPrint);
+    setTimeout(function () {
+      var rev = document.getElementById('revisaoImportWrap');
+      if (rev && IMPORT_STATE.textoPrint) rev.insertAdjacentHTML('beforeend', '<div class="card">' + notaDetalheTexto(IMPORT_STATE.textoPrint) + '</div>');
+    }, 1200);
+  }).catch(function (e) {
+    console.error(e);
+    if (st) st.innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⚠️</div>' + escMeta(e.message || String(e)) + '</div>';
+  });
+}
+
+function notaDetalheTexto(t) {
+  return '<details style="margin-top:6px;"><summary class="rev-meta" style="cursor:pointer;">Ver texto lido do print</summary><pre style="white-space:pre-wrap;font-size:11px;color:var(--muted);">' + escMeta(t) + '</pre></details>';
+}
 
 /* ==================== VALIDAÇÃO + SALVAR ==================== */
 function validarFormLancamento(st) {
@@ -1626,6 +2160,7 @@ var IMPORT_STATE = {
   modo: 'extrato',            // 'extrato' | 'fatura' | 'historico'
   contaExtrato: 'conta-itau',
   contaFatura: null,
+  contaPrint: null,
   titularMap: { Titular: 'tarcisio', Adicional: 'aline' },
   csvParsed: null,            // {cabecalho, linhas, separador}
   csvMapeamento: { data: 0, descricao: 1, valor: 2 },
@@ -1635,6 +2170,7 @@ var IMPORT_STATE = {
   historicoTransacoes: null,
   historicoResumo: null
 };
+try { IMPORT_STATE.contaPrint = localStorage.getItem('ff_conta_print') || null; } catch (e) {}
 
 /* ---------- render principal da aba ---------- */
 function renderImportarTab() {
@@ -1647,6 +2183,7 @@ function renderImportarTab() {
   html += '<button type="button" class="pill' + (IMPORT_STATE.modo === 'extrato' ? ' on' : '') + '" onclick="selecionarModoImport(\'extrato\')">🏦 Extrato</button>';
   html += '<button type="button" class="pill' + (IMPORT_STATE.modo === 'fatura' ? ' on' : '') + '" onclick="selecionarModoImport(\'fatura\')">💳 Fatura</button>';
   html += '<button type="button" class="pill' + (IMPORT_STATE.modo === 'historico' ? ' on' : '') + '" onclick="selecionarModoImport(\'historico\')">📜 Histórico</button>';
+  html += '<button type="button" class="pill' + (IMPORT_STATE.modo === 'print' ? ' on' : '') + '" onclick="selecionarModoImport(\'print\')">📱 Print</button>';
   html += '</div>';
 
   if (IMPORT_STATE.modo === 'extrato') {
@@ -1662,6 +2199,10 @@ function renderImportarTab() {
     html += '<div><div class="card-sub" style="margin:0 0 4px;">Titular</div><select class="select-inline input" id="selTitular" onchange="atualizarTitularMap()"></select></div>';
     html += '<div><div class="card-sub" style="margin:0 0 4px;">Adicional</div><select class="select-inline input" id="selAdicional" onchange="atualizarTitularMap()"></select></div>';
     html += '</div>';
+  } else if (IMPORT_STATE.modo === 'print') {
+    html += '<div class="card-sub">Tire um print da lista de transações recentes do cartão (Apple Wallet ou app do banco) e envie aqui. Vale mais de um print. O app lê nome, valor e data de cada compra e você confere antes de gravar. Quando a fatura chegar, as compras se juntam às deste print sem duplicar.</div>';
+    html += '<div class="label">Cartão do print</div>';
+    html += '<div class="pill-grid" id="pills-conta-print"></div>';
   } else {
     html += '<div class="card-sub">Sobe a planilha "Gestão de Contas" (aba "Base Geral") e eu trago tudo já categorizado — conta/cartão e responsável são lidos direto do arquivo, linha a linha.</div>';
   }
@@ -1670,7 +2211,7 @@ function renderImportarTab() {
   html += '<label class="upload-box" id="uploadBox">';
   html += '<div class="ic">📤</div>';
   html += '<div id="uploadTexto">Toque para escolher ' + (IMPORT_STATE.modo === 'historico' ? 'o arquivo' : 'um ou mais arquivos') + '</div>';
-  html += '<input type="file" id="inputArquivo" ' + (IMPORT_STATE.modo === 'historico' ? '' : 'multiple ') + 'accept="' + (IMPORT_STATE.modo === 'fatura' ? '.xlsx' : IMPORT_STATE.modo === 'historico' ? '.xlsx' : '.ofx,.csv,.pdf,.xlsx,.xls') + '" onchange="onArquivoSelecionado(event)">';
+  html += '<input type="file" id="inputArquivo" ' + (IMPORT_STATE.modo === 'historico' ? '' : 'multiple ') + 'accept="' + (IMPORT_STATE.modo === 'print' ? 'image/*' : IMPORT_STATE.modo === 'fatura' ? '.xlsx' : IMPORT_STATE.modo === 'historico' ? '.xlsx' : '.ofx,.csv,.pdf,.xlsx,.xls') + '" onchange="onArquivoSelecionado(event)">';
   html += '</label>';
 
   html += '<div id="statusProcessamento"></div>';
@@ -1720,6 +2261,7 @@ function renderImportarTab() {
   document.getElementById('importarWrap').innerHTML = html;
   renderPillsContaExtrato();
   renderPillsContaFatura();
+  renderPillsContaPrint();
   if (IMPORT_STATE.modo === 'fatura') preencherSelectsTitular();
 }
 
@@ -1845,7 +2387,7 @@ function ehPagamentoDeFatura(descricao) {
 }
 
 function detectarAutoCategoria(descricao) {
-  var d = (descricao || '').toUpperCase();
+  var d = (descricao || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
   if (/RESGATE CDB|APLICACAO CDB|APLIC\.?\s*CDB|COR JSCP|COR RENDIMENTO|REND PAGO APLIC|DIVIDENDO|APLICACAO|CRIPTO|COR COMP|COR ITAUCOR|CONTA GLOBAL/.test(d)) {
     return { categoria: 'investimentos', grupo: 'pontual', quem: 'casal' };
   }
@@ -1864,7 +2406,7 @@ function detectarAutoCategoria(descricao) {
   if (/FOLHA PAGAMENTO|\bSALARIO\b/.test(d)) return { categoria: 'salario', grupo: 'fixo', quem: 'casal' };
   if (/13[ºO]\s*SALARIO|\bBONUS\b|\bPLR\b/.test(d)) return { categoria: 'renda-anual', grupo: 'pontual', quem: 'casal' };
   if (/FUND SAUDE|SAUDE ITAU|CLINICA|\bDROGA|\bFARMA|\bHOSP|\bLAB\s|ODONTO/.test(d)) return { categoria: 'beleza-saude', grupo: 'recorrente' };
-  if (/IFOOD|RAPPI|UBER EATS|ZE DELIVERY|RESTAUR|BURGER|PIZZA/.test(d)) return { categoria: 'lazer', subcategoria: 'Restaurante', grupo: 'pontual' };
+  if (/IFOOD|RAPPI|UBER EATS|ZE DELIVERY|RESTAUR|BURGER|PIZZA|SUSHI|JAPANESE|ROTISSERIE|PADARIA|BISTRO|CAFETERIA|LANCHONETE/.test(d)) return { categoria: 'lazer', subcategoria: 'Restaurante', grupo: 'pontual' };
   if (/\bPOSTO\b|IPIRANGA|\bSHELL\b/.test(d)) return { categoria: 'carro', subcategoria: 'Combustível', grupo: 'recorrente' };
   if (/ESTAPAR|ESTACIONA/.test(d)) return { categoria: 'carro', subcategoria: 'Estacionamento', grupo: 'pontual' };
   if (/\bUBER\b|\b99\b|99APP/.test(d)) return { categoria: 'transporte', grupo: 'recorrente' };
@@ -2146,6 +2688,12 @@ function sugerirReconciliacao(transacoesImportadas, transacoesExistentes) {
     var kv = chaveValorTransacao(t);
     (porValor[kv] = porValor[kv] || []).push(t);
   });
+  var porWallet = {};
+  transacoesExistentes.forEach(function (t) {
+    if (t.fonte !== 'wallet') return;
+    var kw = chaveValorTransacao(t);
+    (porWallet[kw] = porWallet[kw] || []).push(t);
+  });
   var consumidos = {};
 
   function pegarNaoConsumido(lista) {
@@ -2159,6 +2707,13 @@ function sugerirReconciliacao(transacoesImportadas, transacoesExistentes) {
   return transacoesImportadas.map(function (imp) {
     if (imp.fitid && fitidsExistentes[imp.fitid]) {
       return { importada: imp, status: 'ja_importado' };
+    }
+    if (imp.fonte === 'wallet') {
+      var jaWallet = pegarNaoConsumido(porWallet[chaveValorTransacao(imp)]);
+      if (jaWallet) {
+        consumidos[jaWallet.id] = true;
+        return { importada: imp, status: 'ja_importado', duplicadoDe: jaWallet };
+      }
     }
     var igual = pegarNaoConsumido(porConteudo[chaveConteudoTransacao(imp)]);
     if (igual) {
@@ -2214,6 +2769,11 @@ function onArquivoSelecionado(evt) {
   IMPORT_STATE.pagamentosIgnorados = 0;
   document.getElementById('uploadTexto').textContent = files.length === 1 ? '📄 ' + files[0].name : '📄 ' + files.length + ' arquivos selecionados';
   document.getElementById('statusProcessamento').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⏳</div>Processando ' + (files.length > 1 ? files.length + ' arquivos...' : '...') + '</div>';
+
+  if (IMPORT_STATE.modo === 'print') {
+    processarPrintsWallet(files);
+    return;
+  }
 
   if (IMPORT_STATE.modo === 'historico') {
     // histórico: planilha única, não faz sentido combinar várias
@@ -2475,6 +3035,7 @@ function prosseguirComItens(itensBrutos, contaId) {
         grupo: auto.grupo || (r.candidato ? r.candidato.grupo : null) || 'pontual',
         categoria: auto.categoria || (r.candidato ? r.candidato.categoria : null) || 'outros',
         subcategoria: auto.subcategoria || (r.candidato ? r.candidato.subcategoria : null) || null,
+        fonte: imp.fonte || null,
         viaRegraAprendida: !!regraAprendida,
         aprenderRegra: false,
         selecionado: r.status !== 'ja_importado' && r.status !== 'provavel_duplicado',
@@ -2710,11 +3271,11 @@ function confirmarImportacao() {
     var item = itens[i];
     if (item.status === 'sugestao_merge' && item.candidato) {
       var ref = fb.doc(fb.db, 'familias', FAMILIA_ID, 'transacoes', item.candidato.id);
-      var upd = {
+      var upd = item.fonte === 'wallet' ? { fonte: 'wallet' } : {
         origem: 'mesclado',
         fitid: item.fitid || item.candidato.fitid || null
       };
-      if (item.quem) upd.quem = item.quem; // importação prevalece
+      if (item.quem && item.fonte !== 'wallet') upd.quem = item.quem; // importação prevalece
       if (item.parcelaAtual) { upd.parcelaAtual = item.parcelaAtual; upd.totalParcelas = item.totalParcelas; upd.parcelado = true; }
       promessas.push(fb.updateDoc(ref, upd));
     } else {
@@ -2729,7 +3290,8 @@ function confirmarImportacao() {
         subcategoria: item.subcategoria || null,
         conta: item.conta,
         descricao: item.descricao,
-        origem: 'importado',
+        origem: item.fonte === 'wallet' ? 'manual' : 'importado',
+        fonte: item.fonte || null,
         fitid: item.fitid || null,
         parcelado: !!item.parcelaAtual,
         parcelaAtual: item.parcelaAtual || null,
@@ -3447,7 +4009,7 @@ function renderLogImportacoes(itens) {
   if (!wrap) return;
   if (itens.length === 0) { wrap.innerHTML = ''; return; }
 
-  var nomesTipos = { extrato: '🏦 Extrato', fatura: '💳 Fatura', historico: '📜 Histórico', migracao: '🚚 Migração' };
+  var nomesTipos = { extrato: '🏦 Extrato', fatura: '💳 Fatura', print: '📱 Print', historico: '📜 Histórico', migracao: '🚚 Migração' };
 
   var html = '<div class="card">';
   html += '<div class="card-title">📜 Últimas importações</div>';
