@@ -122,6 +122,8 @@ h1,h2,.serif { font-family:'Poppins', sans-serif; font-weight:700; }
   -webkit-overflow-scrolling:touch;
 }
 .tabs::-webkit-scrollbar { display:none; }
+.tabs { overflow-y:hidden; overscroll-behavior:contain; touch-action:pan-x; scrollbar-width:none; }
+.tab { touch-action:pan-x; -webkit-user-select:none; user-select:none; }
 .tab {
   flex:0 0 auto; padding:8px 13px; border-radius:20px; font-size:13px; font-weight:600;
   color:var(--muted); background:var(--bg); cursor:pointer; white-space:nowrap;
@@ -344,7 +346,7 @@ body { background:var(--bg); }
 
 /* Abas: linha inferior ativa, como no painel da Ibira */
 .tabs { gap:2px; padding:8px 12px 0; background:var(--bg); border-bottom:1px solid var(--border); }
-.tab { border-radius:0; background:none; padding:10px 12px; font-size:13px; border-bottom:2px solid transparent; margin-bottom:-1px; color:var(--muted); }
+.tab { border-radius:0; background:none; padding:10px 12px; font-size:13px; border-bottom:2px solid transparent; margin-bottom:0; color:var(--muted); }
 .tab:hover { color:var(--txt); }
 .tab.on { background:none; color:var(--txt); border-bottom-color:var(--primary-d); }
 
@@ -839,7 +841,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-10-18.8';
+var APP_VERSAO = '2026-10-18.9';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -3851,15 +3853,7 @@ function desenharChartMensal(labels, chaves, porBucket) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: 'bottom' } },
-      scales: { y: { beginAtZero: true } },
-      onClick: function (evt, elements) {
-        if (!elements || elements.length === 0) return;
-        var chave = chaves[elements[0].index];
-        var de, ate;
-        if (chave.length === 4) { de = chave + '-01-01'; ate = chave + '-12-31'; }
-        else { de = chave + '-01'; ate = ultimoDiaMesISO(chave + '-01'); }
-        drillDownParaLancamentos({ deISO: de, ateISO: ate });
-      }
+      scales: { y: { beginAtZero: true } }
     }
   });
 }
@@ -3880,11 +3874,7 @@ function desenharChartCategorias(porCategoria) {
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
-      scales: { x: { beginAtZero: true } },
-      onClick: function (evt, elements) {
-        if (!elements || elements.length === 0) return;
-        drillDownParaLancamentos({ categoria: [top[elements[0].index].id] });
-      }
+      scales: { x: { beginAtZero: true } }
     }
   });
 }
@@ -3904,11 +3894,7 @@ function desenharChartReceitas(porCategoriaReceita) {
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
-      scales: { x: { beginAtZero: true } },
-      onClick: function (evt, elements) {
-        if (!elements || elements.length === 0) return;
-        drillDownParaLancamentos({ categoria: [entradas[elements[0].index].id] });
-      }
+      scales: { x: { beginAtZero: true } }
     }
   });
 }
