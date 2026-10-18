@@ -489,6 +489,8 @@ body { background:var(--bg); }
     <div id="recorrentesWrap"></div>
   </div>
 
+  <div id="rodapeVersao" style="text-align:center;font-size:11px;color:var(--muted);padding:6px 0 24px;"></div>
+
   <!-- ===== ABA: RELATÓRIOS / PAINEL ===== -->
   <div id="sec-relatorios" class="sec">
     <div id="relatWrap"></div>
@@ -823,7 +825,9 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
+var APP_VERSAO = '2026-10-18.2';
 window.mudarTab = mudarTab;
+(function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
 /* ==================== MODAL GENÉRICO ==================== */
 function abrirModal(id) {
@@ -2403,7 +2407,7 @@ function prosseguirComItens(itensBrutos, contaId) {
     renderRevisaoImportacao();
   }).catch(function (e) {
     console.error(e);
-    document.getElementById('statusProcessamento').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⚠️</div>Erro ao consultar lançamentos existentes: ' + e.message + '</div>';
+    document.getElementById('statusProcessamento').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⚠️</div>Erro ao consultar lançamentos existentes: ' + e.message + '<div style="font-size:11px;margin-top:8px;">versão ' + APP_VERSAO + '</div></div>';
   });
 }
 
