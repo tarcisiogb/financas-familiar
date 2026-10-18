@@ -405,7 +405,7 @@ body { background:var(--bg); }
 }
 
 .dup-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;}
-.dup-barra{position:sticky;bottom:8px;z-index:5;order:99;background:var(--card);border:1px solid var(--border,#ddd);border-radius:12px;padding:10px 12px;margin:8px 0 12px;box-shadow:0 2px 8px rgba(0,0,0,.08);}
+
 .status-ok{background:var(--receita-l);color:var(--receita);}
 .dup-resumo{font-size:13px;margin-bottom:8px;}
 .dup-grupo{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border,#ddd);border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:pointer;opacity:.6;}
@@ -415,6 +415,12 @@ body { background:var(--bg); }
 .nota-box{margin:4px 0 14px;padding-bottom:12px;border-bottom:1px dashed var(--border);}
 .nota-box .btn{width:100%;}
 .nota-resumo{margin-top:8px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--card);}
+.tag-evento{background:var(--yellow-l);color:var(--alerta);}
+.lanc-row.sel{outline:2px solid var(--primary);outline-offset:-2px;background:var(--primary-x);}
+.sel-check{width:20px;height:20px;flex:none;margin-right:8px;}
+.sel-barra,.dup-barra{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--card);border-top:1px solid var(--border);padding:10px 14px calc(10px + env(safe-area-inset-bottom));box-shadow:0 -4px 14px rgba(0,0,0,.12);}
+#sec-lancamentos:has(#selBarra.sel-barra){padding-bottom:190px;}
+#dupWrap:has(.dup-barra){padding-bottom:170px;}
 </style>
 </head>
 <body>
@@ -487,6 +493,7 @@ body { background:var(--bg); }
     <div class="filtro-row" id="filtroPeriodoRow"></div>
     <div class="filtro-row" id="filtroExtraRow"></div>
     <div id="listaLancamentos"></div>
+    <div id="selBarra"></div>
   </div>
 
   <!-- ===== ABA: ORÇAMENTOS (placeholder) ===== -->
@@ -760,6 +767,39 @@ function getGrupoById(id) {
 
 /* ==================== ESTADO ==================== */
 var FORM_STATE = {};
+var EVENTOS = [{ id: 'compra-ap', nome: 'Compra do AP', emoji: '🏠' }];
+var EVENTOS_OCULTOS = true;
+try { if (localStorage.getItem('ff_eventos_ocultos') === '0') EVENTOS_OCULTOS = false; } catch (e) {}
+function getEventoById(id) {
+  for (var i = 0; i < EVENTOS.length; i++) if (EVENTOS[i].id === id) return EVENTOS[i];
+  return null;
+}
+function eventoOculto(t) { return !!(EVENTOS_OCULTOS && t && t.evento); }
+function htmlToggleEventos(n) {
+  var h = '<div class="seg">';
+  h += '<button type="button" class="' + (EVENTOS_OCULTOS ? 'on' : '') + '" onclick="definirEventosOcultos(true)">Sem eventos</button>';
+  h += '<button type="button" class="' + (!EVENTOS_OCULTOS ? 'on' : '') + '" onclick="definirEventosOcultos(false)">Total' + (n > 0 ? ' (+' + n + ' evento' + (n > 1 ? 's' : '') + ')' : '') + '</button>';
+  h += '</div>';
+  return h;
+}
+function definirEventosOcultos(v) {
+  if (EVENTOS_OCULTOS === v) return;
+  alternarEventosOcultos();
+}
+window.definirEventosOcultos = definirEventosOcultos;
+function alternarEventosOcultos() {
+  EVENTOS_OCULTOS = !EVENTOS_OCULTOS;
+  try { localStorage.setItem('ff_eventos_ocultos', EVENTOS_OCULTOS ? '1' : '0'); } catch (e) {}
+  atualizarStatsMes();
+  if (document.getElementById('fluxoFiltrosRow') && document.getElementById('sec-fluxo').classList.contains('on')) { renderFluxoFiltrosChips(); carregarFluxo(); }
+  if (RELAT_STATE.itens !== null) renderRelatoriosConteudo();
+}
+window.alternarEventosOcultos = alternarEventosOcultos;
+function invalidarCachesAgregados() {
+  FLUXO_STATE.iniciado = false;
+  RELAT_STATE.itens = null;
+}
+
 function novoFormState() {
   return {
     id: null,
@@ -775,14 +815,15 @@ function novoFormState() {
     parcelas: 2,
     valorTotal: 0,
     observacao: '',
-    origem: 'manual'
+    origem: 'manual',
+    evento: null
   };
 }
 FORM_STATE.lancar = novoFormState();
 FORM_STATE.editar = novoFormState();
 
 var TRANSACOES_CACHE = [];
-var LANCAMENTOS_FILTRO = { periodo: 'mes', quem: [], categoria: [], conta: [], origem: [], deISO: null, ateISO: null };
+var LANCAMENTOS_FILTRO = { periodo: 'mes', quem: [], categoria: [], conta: [], origem: [], deISO: null, ateISO: null, evento: '', valorMin: 0 };
 var LANCAMENTOS_VISUALIZACAO = 'lista';
 var FILTRO_MULTI_CAMPO = null;
 var FILTRO_MULTI_ALVO = 'lancamentos';
@@ -841,7 +882,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-10-18.9';
+var APP_VERSAO = '2026-10-18.11';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -926,6 +967,10 @@ function renderFormLancamento(prefixo) {
   html += '<div class="label">Observação (opcional)</div>';
   html += '<textarea class="input" id="input-obs-' + prefixo + '" oninput="onObsInput(\'' + prefixo + '\', this)">' + (st.observacao || '') + '</textarea>';
 
+  html += '<div class="label">Evento (opcional)</div>';
+  html += '<div class="pill-grid" id="pills-evento-' + prefixo + '"></div>';
+  html += '<div class="card-sub" style="margin-top:4px;">Eventos grandes e pontuais (como a compra do apartamento) ficam fora dos gráficos, indicadores e metas.</div>';
+
   html += '<div class="btn-row">';
   if (prefixo === 'editar') {
     html += '<button class="btn btn-danger" onclick="excluirTransacao()">🗑️ Excluir</button>';
@@ -943,7 +988,21 @@ function renderFormLancamento(prefixo) {
   renderPillsCategoria(prefixo);
   renderSubcategoria(prefixo);
   renderParcelasBox(prefixo);
+  renderPillsEvento(prefixo);
 }
+
+function renderPillsEvento(prefixo) {
+  var st = FORM_STATE[prefixo];
+  var el = document.getElementById('pills-evento-' + prefixo);
+  if (!el) return;
+  var html = '<button type="button" class="pill' + (!st.evento ? ' on' : '') + '" onclick="selecionarEvento(\'' + prefixo + '\',null)">Nenhum</button>';
+  for (var i = 0; i < EVENTOS.length; i++) {
+    html += '<button type="button" class="pill' + (st.evento === EVENTOS[i].id ? ' on' : '') + '" onclick="selecionarEvento(\'' + prefixo + '\',\'' + EVENTOS[i].id + '\')">' + EVENTOS[i].emoji + ' ' + EVENTOS[i].nome + '</button>';
+  }
+  el.innerHTML = html;
+}
+function selecionarEvento(prefixo, id) { FORM_STATE[prefixo].evento = id; renderPillsEvento(prefixo); }
+window.selecionarEvento = selecionarEvento;
 
 function renderPillsQuem(prefixo) {
   var st = FORM_STATE[prefixo];
@@ -1664,6 +1723,7 @@ function montarDocBase(st) {
     conta: st.conta,
     descricao: st.observacao || (getCategoriaById(st.categoria) ? getCategoriaById(st.categoria).nome : ''),
     origem: st.origem || 'manual',
+    evento: st.evento || null,
     fitid: null,
     parcelado: false,
     parcelaAtual: null,
@@ -1695,6 +1755,7 @@ function salvarLancamentoUnico(st, prefixo) {
       FORM_STATE.lancar = novoFormState();
       renderFormLancamento('lancar');
     }
+    invalidarCachesAgregados();
     atualizarStatsMes();
     carregarLancamentos(true);
   }).catch(function (e) {
@@ -1734,6 +1795,7 @@ function salvarLancamentoParcelado(st) {
   Promise.all(promessas).then(function () {
     FORM_STATE.lancar = novoFormState();
     renderFormLancamento('lancar');
+    invalidarCachesAgregados();
     atualizarStatsMes();
     carregarLancamentos(true);
   }).catch(function (e) {
@@ -1750,6 +1812,7 @@ function excluirTransacao() {
   var ref = fb.doc(fb.db, 'familias', FAMILIA_ID, 'transacoes', st.id);
   fb.deleteDoc(ref).then(function () {
     fecharModal('modal-editar');
+    invalidarCachesAgregados();
     atualizarStatsMes();
     carregarLancamentos(true);
   }).catch(function (e) {
@@ -1773,6 +1836,7 @@ function abrirEdicao(transacao) {
   st.parcelado = false;
   st.observacao = transacao.descricao || '';
   st.origem = transacao.origem || 'manual';
+  st.evento = transacao.evento || null;
   FORM_STATE.editar = st;
   renderFormLancamento('editar');
   abrirModal('modal-editar');
@@ -1794,6 +1858,7 @@ function atualizarStatsMes() {
       var t = d.data();
       var cat = getCategoriaById(t.categoria);
       if (cat && cat.orcamentavel === false) return;
+      if (eventoOculto(t)) return;
       if (t.tipo === 'despesa') gasto += t.valor;
       else receita += t.valor;
     });
@@ -1836,8 +1901,30 @@ function renderFiltrosLancamentos() {
   extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.conta.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'conta\')">💳 ' + labelFiltroMulti('conta') + '</div>';
   extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.categoria.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'categoria\')">🏷️ ' + labelFiltroMulti('categoria') + '</div>';
   extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.origem.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'origem\')">🔖 ' + labelFiltroMulti('origem') + '</div>';
+  var evTxt = LANCAMENTOS_FILTRO.evento === 'so' ? '🏠 Só eventos' : LANCAMENTOS_FILTRO.evento === 'sem' ? '🏠 Sem eventos' : '🏠 Eventos: todos';
+  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.evento ? ' on' : '') + '" onclick="alternarFiltroEvento()">' + evTxt + '</div>';
+  extraHtml += '<div class="filtro-chip' + (LANCAMENTOS_FILTRO.valorMin > 0 ? ' on' : '') + '" onclick="definirValorMinimo()">💰 ' + (LANCAMENTOS_FILTRO.valorMin > 0 ? 'Valor ≥ ' + fmtBRL(LANCAMENTOS_FILTRO.valorMin) : 'Valor mínimo') + '</div>';
   document.getElementById('filtroExtraRow').innerHTML = extraHtml;
 }
+
+function alternarFiltroEvento() {
+  var c = LANCAMENTOS_FILTRO.evento;
+  LANCAMENTOS_FILTRO.evento = c === '' ? 'so' : c === 'so' ? 'sem' : '';
+  renderFiltrosLancamentos();
+  carregarLancamentos(true);
+}
+window.alternarFiltroEvento = alternarFiltroEvento;
+
+function definirValorMinimo() {
+  var atual = LANCAMENTOS_FILTRO.valorMin > 0 ? String(LANCAMENTOS_FILTRO.valorMin).replace('.', ',') : '';
+  var r = prompt('Mostrar só lançamentos com valor a partir de (R$). Deixe vazio para limpar:', atual);
+  if (r === null) return;
+  var v = parseFloat(String(r).replace(/\./g, '').replace(',', '.'));
+  LANCAMENTOS_FILTRO.valorMin = (isNaN(v) || v <= 0) ? 0 : v;
+  renderFiltrosLancamentos();
+  carregarLancamentos(true);
+}
+window.definirValorMinimo = definirValorMinimo;
 
 function labelFiltroMultiGenerico(campo, arr) {
   var nomes = { quem: 'Quem', conta: 'Conta', categoria: 'Categoria', origem: 'Origem' };
@@ -1943,15 +2030,110 @@ function aplicarFiltroMulti() {
 window.aplicarFiltroMulti = aplicarFiltroMulti;
 
 /* ---------- alternância Lista / Planilha ---------- */
+
+/* ---------- seleção em lote (marcar eventos) ---------- */
+var SEL_STATE = { ativo: false, ids: {} };
+
+function selContar() {
+  var n = 0;
+  for (var k in SEL_STATE.ids) if (SEL_STATE.ids[k]) n++;
+  return n;
+}
+
+function selAtivar(v) {
+  SEL_STATE.ativo = v;
+  SEL_STATE.ids = {};
+  if (v && LANCAMENTOS_VISUALIZACAO !== 'lista') { LANCAMENTOS_VISUALIZACAO = 'lista'; }
+  renderToggleVisualizacao();
+  renderResultadoLancamentos(TRANSACOES_CACHE);
+  selRenderBarra();
+}
+window.selAtivar = selAtivar;
+
+function selToggle(id) {
+  SEL_STATE.ids[id] = !SEL_STATE.ids[id];
+  var chk = document.getElementById('selchk-' + id);
+  if (chk) chk.checked = !!SEL_STATE.ids[id];
+  var row = document.getElementById('selrow-' + id);
+  if (row) row.className = 'lanc-row' + (SEL_STATE.ids[id] ? ' sel' : '');
+  selRenderBarra();
+}
+window.selToggle = selToggle;
+
+function selTodos(v) {
+  SEL_STATE.ids = {};
+  if (v) for (var i = 0; i < TRANSACOES_CACHE.length; i++) SEL_STATE.ids[TRANSACOES_CACHE[i].id] = true;
+  renderResultadoLancamentos(TRANSACOES_CACHE);
+  selRenderBarra();
+}
+window.selTodos = selTodos;
+
+function selRenderBarra() {
+  var el = document.getElementById('selBarra');
+  if (!el) return;
+  if (!SEL_STATE.ativo) { el.innerHTML = ''; el.className = ''; return; }
+  var n = selContar();
+  el.className = 'sel-barra';
+  var h = '<div class="dup-resumo"><b>' + n + '</b> selecionado(s) de ' + TRANSACOES_CACHE.length + ' na tela</div>';
+  h += '<div class="btn-row">';
+  for (var i = 0; i < EVENTOS.length; i++) {
+    h += '<button type="button" class="btn btn-primary" ' + (n === 0 ? 'disabled ' : '') + 'onclick="selAplicar(\'' + EVENTOS[i].id + '\')">' + EVENTOS[i].emoji + ' Marcar como ' + EVENTOS[i].nome + '</button>';
+  }
+  h += '<button type="button" class="btn btn-ghost" ' + (n === 0 ? 'disabled ' : '') + 'onclick="selAplicar(null)">Tirar marca de evento</button>';
+  h += '</div>';
+  h += '<div class="btn-row" style="margin-top:6px;">';
+  h += '<button type="button" class="pill pill-sub" onclick="selTodos(true)">☑ Selecionar todos da tela</button>';
+  h += '<button type="button" class="pill pill-sub" onclick="selTodos(false)">☐ Limpar</button>';
+  h += '<button type="button" class="pill pill-sub" onclick="selAtivar(false)">Cancelar</button>';
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function selAplicar(eventoId) {
+  var fb = window._fb;
+  var ids = [];
+  for (var k in SEL_STATE.ids) if (SEL_STATE.ids[k]) ids.push(k);
+  if (ids.length === 0) return;
+  var ev = eventoId ? getEventoById(eventoId) : null;
+  var msg = ev ? ('Marcar ' + ids.length + ' lançamento(s) como "' + ev.nome + '"? Eles saem dos gráficos, indicadores e metas (continuam na lista).')
+                : ('Tirar a marca de evento de ' + ids.length + ' lançamento(s)? Eles voltam a contar nos gráficos.');
+  if (!confirm(msg)) return;
+  var TAM = 400;
+  function lote(i) {
+    if (i >= ids.length) return Promise.resolve();
+    var batch = fb.writeBatch(fb.db);
+    var fatia = ids.slice(i, i + TAM);
+    for (var j = 0; j < fatia.length; j++) {
+      batch.update(fb.doc(fb.db, 'familias', FAMILIA_ID, 'transacoes', fatia[j]), { evento: eventoId || null });
+    }
+    return batch.commit().then(function () { return lote(i + TAM); });
+  }
+  lote(0).then(function () {
+    var mapa = {};
+    for (var q = 0; q < ids.length; q++) mapa[ids[q]] = true;
+    [TRANSACOES_CACHE, LANCAMENTOS_RAW_ACUMULADO].forEach(function (lista) {
+      for (var z = 0; z < lista.length; z++) if (mapa[lista[z].id]) lista[z].evento = eventoId || null;
+    });
+    SEL_STATE.ids = {};
+    invalidarCachesAgregados();
+    renderResultadoLancamentos(TRANSACOES_CACHE);
+    selRenderBarra();
+    atualizarStatsMes();
+  }).catch(function (e) { console.error(e); alert('Erro ao gravar: ' + e.message); });
+}
+window.selAplicar = selAplicar;
+
 function renderToggleVisualizacao() {
   var html = '<div class="toggle2">';
   html += '<button type="button" class="pill' + (LANCAMENTOS_VISUALIZACAO === 'lista' ? ' on' : '') + '" onclick="mudarVisualizacaoLancamentos(\'lista\')">📋 Lista</button>';
   html += '<button type="button" class="pill' + (LANCAMENTOS_VISUALIZACAO === 'planilha' ? ' on' : '') + '" onclick="mudarVisualizacaoLancamentos(\'planilha\')">🧮 Planilha</button>';
+  html += '<button type="button" class="pill' + (SEL_STATE.ativo ? ' on' : '') + '" onclick="selAtivar(' + (SEL_STATE.ativo ? 'false' : 'true') + ')">☑ Selecionar</button>';
   html += '</div>';
   document.getElementById('visualizacaoToggleRow').innerHTML = html;
 }
 function mudarVisualizacaoLancamentos(modo) {
   LANCAMENTOS_VISUALIZACAO = modo;
+  if (modo === 'planilha' && SEL_STATE.ativo) { SEL_STATE.ativo = false; SEL_STATE.ids = {}; selRenderBarra(); }
   renderToggleVisualizacao();
   renderResultadoLancamentos(TRANSACOES_CACHE);
 }
@@ -1973,6 +2155,9 @@ function aplicarFiltrosClientSideLancamentos(itens) {
     if (LANCAMENTOS_FILTRO.conta.length && LANCAMENTOS_FILTRO.conta.indexOf(t.conta) === -1) return false;
     if (LANCAMENTOS_FILTRO.categoria.length && LANCAMENTOS_FILTRO.categoria.indexOf(t.categoria) === -1) return false;
     if (LANCAMENTOS_FILTRO.origem.length && LANCAMENTOS_FILTRO.origem.indexOf(t.origem) === -1) return false;
+    if (LANCAMENTOS_FILTRO.evento === 'so' && !t.evento) return false;
+    if (LANCAMENTOS_FILTRO.evento === 'sem' && t.evento) return false;
+    if (LANCAMENTOS_FILTRO.valorMin > 0 && t.valor < LANCAMENTOS_FILTRO.valorMin) return false;
     return true;
   });
 }
@@ -2136,7 +2321,12 @@ function renderLinhaLancamento(t) {
   }
 
   var html = '';
-  html += '<div class="lanc-row" onclick=\'abrirEdicao(' + JSON.stringify(t).replace(/'/g, "&#39;") + ')\'>';
+  if (SEL_STATE.ativo) {
+    html += '<div class="lanc-row' + (SEL_STATE.ids[t.id] ? ' sel' : '') + '" id="selrow-' + t.id + '" onclick="selToggle(\'' + t.id + '\')">';
+    html += '<input type="checkbox" class="sel-check" id="selchk-' + t.id + '" ' + (SEL_STATE.ids[t.id] ? 'checked ' : '') + 'tabindex="-1" style="pointer-events:none;">';
+  } else {
+    html += '<div class="lanc-row" onclick=\'abrirEdicao(' + JSON.stringify(t).replace(/'/g, "&#39;") + ')\'>';
+  }
   html += '<div class="lanc-icon" style="background:' + (conta ? conta.cor : '#ccc') + '22;">' + emoji + '</div>';
   html += '<div class="lanc-mid">';
   html += '<div class="lanc-desc">' + (t.descricao || (cat ? cat.nome : '')) + '</div>';
@@ -2145,6 +2335,8 @@ function renderLinhaLancamento(t) {
   html += ' · ' + (conta ? conta.nome : '');
   html += parcelaTxt;
   html += ' ' + tagOrigem;
+  var ev = t.evento ? getEventoById(t.evento) : null;
+  if (ev) html += ' <span class="tag tag-evento">' + ev.emoji + ' ' + ev.nome + '</span>';
   html += '</div></div>';
   html += '<div class="lanc-valor ' + corValor + '">' + sinal + ' ' + fmtBRL(t.valor) + '</div>';
   html += '</div>';
@@ -3038,6 +3230,7 @@ function prosseguirComItens(itensBrutos, contaId) {
         categoria: auto.categoria || (r.candidato ? r.candidato.categoria : null) || 'outros',
         subcategoria: auto.subcategoria || (r.candidato ? r.candidato.subcategoria : null) || null,
         fonte: imp.fonte || null,
+        evento: null,
         viaRegraAprendida: !!regraAprendida,
         aprenderRegra: false,
         selecionado: r.status !== 'ja_importado' && r.status !== 'provavel_duplicado',
@@ -3083,6 +3276,7 @@ function renderRevisaoImportacao() {
     for (var i = 0; i < visiveis.length; i++) {
       html += renderLinhaRevisao(visiveis[i]);
     }
+    html += '<div class="btn-row"><button class="btn btn-ghost" onclick="revMarcarEventoPorValor()">🏠 Marcar valores altos como Compra do AP…</button></div>';
     html += '<div class="btn-row"><button class="btn btn-primary" onclick="confirmarImportacao()">✅ Confirmar importação</button></div>';
   }
   html += '</div>';
@@ -3137,6 +3331,9 @@ function renderLinhaRevisao(item) {
     html += '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-top:7px;">';
     html += '<input type="checkbox" ' + (item.aprenderRegra ? 'checked' : '') + ' onchange="toggleAprenderRegra(\'' + item.tempId + '\', this.checked)" style="width:16px;height:16px;">';
     html += '🧠 lembrar essa categoria pra lançamentos parecidos no futuro</label>';
+    html += '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-top:5px;">';
+    html += '<input type="checkbox" ' + (item.evento ? 'checked' : '') + ' onchange="toggleEventoRevisao(\'' + item.tempId + '\', this.checked)" style="width:16px;height:16px;">';
+    html += '🏠 evento da compra do AP (fica fora dos gráficos e metas)</label>';
   }
 
   if (item.status === 'sugestao_merge') {
@@ -3229,6 +3426,26 @@ function atualizarCampoRevisao(tempId, campo, valor) {
 }
 window.atualizarCampoRevisao = atualizarCampoRevisao;
 
+function toggleEventoRevisao(tempId, checked) {
+  var item = acharItemRevisao(tempId);
+  if (item) item.evento = checked ? 'compra-ap' : null;
+}
+window.toggleEventoRevisao = toggleEventoRevisao;
+
+function revMarcarEventoPorValor() {
+  var r = prompt('Marcar como "Compra do AP" todos os itens novos com valor a partir de (R$):', '10000');
+  if (r === null) return;
+  var v = parseFloat(String(r).replace(/\./g, '').replace(',', '.'));
+  if (isNaN(v) || v <= 0) return;
+  var n = 0;
+  IMPORT_STATE.itensRevisao.forEach(function (it) {
+    if (it.status !== 'ja_importado' && it.status !== 'sugestao_merge' && it.valor >= v) { it.evento = 'compra-ap'; n++; }
+  });
+  renderRevisaoImportacao();
+  alert(n + ' item(ns) marcados.');
+}
+window.revMarcarEventoPorValor = revMarcarEventoPorValor;
+
 function toggleAprenderRegra(tempId, checked) {
   var item = acharItemRevisao(tempId);
   if (item) item.aprenderRegra = checked;
@@ -3294,6 +3511,7 @@ function confirmarImportacao() {
         descricao: item.descricao,
         origem: item.fonte === 'wallet' ? 'manual' : 'importado',
         fonte: item.fonte || null,
+        evento: item.evento || null,
         fitid: item.fitid || null,
         parcelado: !!item.parcelaAtual,
         parcelaAtual: item.parcelaAtual || null,
@@ -3317,6 +3535,7 @@ function confirmarImportacao() {
     document.getElementById('uploadTexto').textContent = 'Toque para escolher um ou mais arquivos';
     var inputEl = document.getElementById('inputArquivo');
     if (inputEl) inputEl.value = '';
+    invalidarCachesAgregados();
     atualizarStatsMes();
     var nNovos = itens.filter(function (i) { return i.status !== 'sugestao_merge'; }).length;
     var nMesclados = itens.length - nNovos;
@@ -3700,6 +3919,7 @@ function renderFluxoTab() {
   var html = '';
   html += '<div class="filtro-row" id="fluxoPeriodoRow"></div>';
   html += '<div class="filtro-row" id="fluxoFiltrosRow"></div>';
+  html += '<div id="fluxoEventosRow" style="margin:2px 0 10px;"></div>';
   html += '<div id="fluxoConteudo"><div class="empty-state"><div class="ic">⏳</div>Carregando...</div></div>';
   document.getElementById('fluxoWrap').innerHTML = html;
   renderFluxoPeriodoChips();
@@ -3726,6 +3946,8 @@ function renderFluxoFiltrosChips() {
   var html = '';
   html += '<div class="filtro-chip' + (FLUXO_STATE.quem.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'quem\',\'fluxo\')">👤 ' + labelFiltroMultiGenerico('quem', FLUXO_STATE.quem) + '</div>';
   html += '<div class="filtro-chip' + (FLUXO_STATE.conta.length ? ' on' : '') + '" onclick="abrirFiltroMulti(\'conta\',\'fluxo\')">💳 ' + labelFiltroMultiGenerico('conta', FLUXO_STATE.conta) + '</div>';
+  var evRow = document.getElementById('fluxoEventosRow');
+  if (evRow) evRow.innerHTML = htmlToggleEventos(FLUXO_STATE.nEventos || 0);
   document.getElementById('fluxoFiltrosRow').innerHTML = html;
 }
 
@@ -3752,6 +3974,12 @@ function carregarFluxo() {
       if (FLUXO_STATE.conta.length && FLUXO_STATE.conta.indexOf(t.conta) === -1) return false;
       return true;
     });
+    var nEv = 0, vEv = 0;
+    itens.forEach(function (t) { if (t.evento) { nEv++; vEv += t.valor; } });
+    FLUXO_STATE.nEventos = nEv;
+    FLUXO_STATE.valorEventos = vEv;
+    renderFluxoFiltrosChips();
+    itens = itens.filter(function (t) { return !eventoOculto(t); });
     renderFluxoConteudo(itens);
   }).catch(function (e) {
     console.error(e);
@@ -3819,9 +4047,9 @@ function renderFluxoConteudo(itens) {
     html += '</div>';
   }
 
-  html += '<div class="card"><div class="card-title">Entradas x Saídas ' + tituloPeriodo + '</div><div class="card-sub" style="margin-bottom:8px;">🔍 toque numa barra pra ver os lançamentos daquele período</div><div style="position:relative;height:240px;"><canvas id="chartMensal"></canvas></div></div>';
-  html += '<div class="card"><div class="card-title">Receitas por categoria</div><div class="card-sub" style="margin-bottom:8px;">🔍 toque numa barra pra ver os lançamentos</div><div style="position:relative;height:240px;"><canvas id="chartReceitas"></canvas></div></div>';
-  html += '<div class="card"><div class="card-title">Despesas por categoria</div><div class="card-sub" style="margin-bottom:8px;">🔍 toque numa barra pra ver os lançamentos</div><div style="position:relative;height:280px;"><canvas id="chartCategorias"></canvas></div></div>';
+  html += '<div class="card"><div class="card-title">Entradas x Saídas ' + tituloPeriodo + '</div><div style="position:relative;height:240px;"><canvas id="chartMensal"></canvas></div></div>';
+  html += '<div class="card"><div class="card-title">Receitas por categoria</div><div style="position:relative;height:240px;"><canvas id="chartReceitas"></canvas></div></div>';
+  html += '<div class="card"><div class="card-title">Despesas por categoria</div><div style="position:relative;height:280px;"><canvas id="chartCategorias"></canvas></div></div>';
   if (totalAportes > 0 || totalResgates > 0) {
     html += '<div class="card"><div class="card-title">Investimentos ' + tituloPeriodo + '</div><div style="position:relative;height:240px;"><canvas id="chartInvest"></canvas></div></div>';
   }
@@ -4655,7 +4883,7 @@ function carregarMetas(comParcelados) {
     return Promise.all(promessas);
   }).then(function (res) {
     var lista = [];
-    res[0].forEach(function (d) { var t = d.data(); t.id = d.id; lista.push(t); });
+    res[0].forEach(function (d) { var t = d.data(); t.id = d.id; if (!eventoOculto(t)) lista.push(t); });
     METAS_STATE.transacoes = lista;
     if (res[1]) {
       var parc = [];
@@ -5148,6 +5376,7 @@ function renderRelatoriosConteudo() {
     var t = itens[i];
     var cat = getCategoriaById(t.categoria);
     if (cat && cat.orcamentavel === false) continue;
+    if (eventoOculto(t)) continue;
     var ym = String(t.data).substring(0, 7);
     if (porMes[ym]) {
       if (t.tipo === 'despesa') porMes[ym].g += t.valor; else porMes[ym].r += t.valor;
@@ -5167,6 +5396,9 @@ function renderRelatoriosConteudo() {
     html += '<button type="button" class="' + (RELAT_STATE.periodo === ps[a][0] ? 'on' : '') + '" onclick="selecionarPeriodoRelat(\'' + ps[a][0] + '\')">' + ps[a][1] + '</button>';
   }
   html += '</div></div>';
+  var nEvR = 0;
+  for (var e = 0; e < itens.length; e++) if (itens[e].evento) nEvR++;
+  html += '<div style="margin:-2px 0 12px;">' + htmlToggleEventos(nEvR) + '</div>';
 
   html += '<div class="kpis k3">';
   html += '<div class="kpi"><div class="lab">Receita</div><div class="val pos">' + fmtBRL(receita) + '</div><div class="sub">' + range.nome + '</div></div>';
