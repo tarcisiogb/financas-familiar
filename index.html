@@ -196,6 +196,26 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
 
 .load-more { text-align:center; padding:14px; color:var(--primary); font-weight:600; font-size:13px; cursor:pointer; }
 
+.meta-bar { height:9px; background:var(--primary-x); border-radius:6px; overflow:hidden; margin:8px 0 6px; }
+.meta-fill { height:100%; border-radius:6px; transition:width .3s; }
+.meta-card { padding:14px 16px; }
+.meta-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+.meta-nome { font-weight:700; font-size:15px; }
+.meta-acoes { display:flex; gap:6px; }
+.meta-btn { -webkit-appearance:none; appearance:none; border:1px solid var(--border); background:#fff; border-radius:8px; padding:6px 10px; font-size:13px; font-family:inherit; cursor:pointer; color:var(--txt); }
+.meta-linha { font-size:13px; }
+.meta-sub { font-size:12px; color:var(--muted); margin-top:3px; }
+.meta-aviso { font-size:12px; margin-top:6px; padding:7px 10px; border-radius:8px; background:var(--alerta-l); color:var(--alerta); font-weight:600; }
+.meta-eco { font-size:12px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); color:var(--muted); }
+.meta-mini { margin-bottom:10px; }
+.meta-mini-top { display:flex; justify-content:space-between; font-size:13px; gap:8px; }
+.meta-mini .meta-bar { height:6px; margin:4px 0 0; }
+.scroll-x { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+table.pano { border-collapse:collapse; width:100%; font-size:13px; }
+table.pano th, table.pano td { padding:8px 6px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+table.pano th:first-child, table.pano td:first-child { text-align:left; white-space:normal; }
+table.pano th { font-size:11px; text-transform:uppercase; letter-spacing:.3px; color:var(--muted); }
+table.pano tr.pano-tot td { font-weight:700; border-top:2px solid var(--primary); border-bottom:none; }
 /* ===== PLACEHOLDER TABS ===== */
 .placeholder { text-align:center; padding:60px 24px; color:var(--muted); }
 .placeholder .ic { font-size:42px; margin-bottom:14px; }
@@ -309,7 +329,7 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
     <div class="tab on" data-tab="lancar" onclick="mudarTab('lancar')">💳 Lançar</div>
     <div class="tab" data-tab="importar" onclick="mudarTab('importar')">🏦 Importar</div>
     <div class="tab" data-tab="lancamentos" onclick="mudarTab('lancamentos')">📋 Lançamentos</div>
-    <div class="tab" data-tab="orcamentos" onclick="mudarTab('orcamentos')">🎯 Orçamentos</div>
+    <div class="tab" data-tab="orcamentos" onclick="mudarTab('orcamentos')">🎯 Metas</div>
     <div class="tab" data-tab="fluxo" onclick="mudarTab('fluxo')">📊 Fluxo</div>
     <div class="tab" data-tab="recorrentes" onclick="mudarTab('recorrentes')">🔮 Recorrentes</div>
     <div class="tab" data-tab="relatorios" onclick="mudarTab('relatorios')">📈 Relatórios</div>
@@ -317,6 +337,7 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
 
   <!-- ===== ABA: LANÇAR ===== -->
   <div id="sec-lancar" class="sec on">
+    <div id="metasStrip"></div>
     <div class="card">
       <div class="card-title">Novo lançamento</div>
       <div class="card-sub">Registre um gasto ou receita</div>
@@ -340,11 +361,7 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
 
   <!-- ===== ABA: ORÇAMENTOS (placeholder) ===== -->
   <div id="sec-orcamentos" class="sec">
-    <div class="placeholder">
-      <div class="ic">🎯</div>
-      <div class="tt">Orçamentos chega em breve</div>
-      <div>Meta mensal por categoria com alerta visual</div>
-    </div>
+    <div id="metasWrap"></div>
   </div>
 
   <!-- ===== ABA: FLUXO ===== -->
@@ -352,13 +369,9 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
     <div id="fluxoWrap"></div>
   </div>
 
-  <!-- ===== ABA: RECORRENTES (placeholder) ===== -->
+  <!-- ===== ABA: RECORRENTES ===== -->
   <div id="sec-recorrentes" class="sec">
-    <div class="placeholder">
-      <div class="ic">🔮</div>
-      <div class="tt">Recorrentes chega em breve</div>
-      <div>Contas fixas e parcelas futuras</div>
-    </div>
+    <div id="recorrentesWrap"></div>
   </div>
 
   <!-- ===== ABA: RELATÓRIOS (placeholder) ===== -->
@@ -465,18 +478,22 @@ button.input { text-align:left; display:flex; align-items:center; justify-conten
 <script>
 /* ==================== CONFIG / CONSTANTES ==================== */
 var CATEGORIAS = [
-  { id:'ap', nome:'AP (Moradia)', emoji:'🏠', subcategorias:['Financiamento','Diarista','Condomínio','Energia','IPTU','TV','Internet/NET','Celular','Baba','Casa Coach'], aplicaEm:['despesa'] },
+  { id:'ap', nome:'AP (Moradia)', emoji:'🏠', subcategorias:['Financiamento','Diarista','Condomínio','Energia','Água','Gás','IPTU','TV','Internet/NET','Celular','Baba','Casa Coach'], aplicaEm:['despesa'] },
   { id:'dizimo', nome:'Dízimo', emoji:'🙏', subcategorias:[], aplicaEm:['despesa'] },
   { id:'escola', nome:'Escola', emoji:'🎒', subcategorias:[], aplicaEm:['despesa'] },
   { id:'seguro', nome:'Seguro', emoji:'🛡️', subcategorias:[], aplicaEm:['despesa'] },
   { id:'alimentacao', nome:'Alimentação', emoji:'🍽️', subcategorias:[], aplicaEm:['despesa'] },
   { id:'supermercado', nome:'Supermercado', emoji:'🛒', subcategorias:[], aplicaEm:['despesa'] },
-  { id:'carro', nome:'Carro', emoji:'🚗', subcategorias:['Combustível','Estacionamento','Seguro'], aplicaEm:['despesa'] },
+  { id:'carro', nome:'Carro', emoji:'🚗', subcategorias:['Combustível','Estacionamento','Pedágio/TAG','Seguro'], aplicaEm:['despesa'] },
   { id:'beleza-saude', nome:'Beleza e Saúde', emoji:'💊', subcategorias:['Vacinas','Fisioterapia','Unha','Farmácia','Academia'], aplicaEm:['despesa'] },
   { id:'transporte', nome:'Transporte', emoji:'🚕', subcategorias:[], aplicaEm:['despesa'] },
   { id:'lazer', nome:'Lazer', emoji:'🎉', subcategorias:['Restaurante','Cinema','Futebol','Poker','Streaming','Clube','Viagens'], aplicaEm:['despesa'] },
-  { id:'presentes', nome:'Presentes', emoji:'🎁', subcategorias:['Aniversariantes'], aplicaEm:['despesa'] },
+  { id:'presentes', nome:'Presentes e compras', emoji:'🎁', subcategorias:['Aniversariantes'], aplicaEm:['despesa'] },
   { id:'compra-ap', nome:'Compra AP', emoji:'🛋️', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'vestuario', nome:'Vestuário', emoji:'👕', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'assinaturas', nome:'Assinaturas/Serviços', emoji:'📱', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'ajuda-familiares', nome:'Ajuda a Familiares', emoji:'🤝', subcategorias:[], aplicaEm:['despesa'] },
+  { id:'mesada', nome:'Mesada', emoji:'🪙', subcategorias:[], aplicaEm:['despesa'] },
   { id:'investimentos', nome:'Investimentos', emoji:'📈', subcategorias:[], orcamentavel:false, aplicaEm:['despesa','receita'] },
   { id:'salario', nome:'Salário', emoji:'💼', subcategorias:[], aplicaEm:['receita'] },
   { id:'renda-anual', nome:'13º / Bônus', emoji:'🎯', subcategorias:[], aplicaEm:['receita'] },
@@ -681,6 +698,15 @@ function mudarTab(nome) {
   if (nome === 'fluxo' && !FLUXO_STATE.iniciado) {
     FLUXO_STATE.iniciado = true;
     renderFluxoTab();
+  }
+  if (nome === 'orcamentos') {
+    METAS_STATE.tabIniciada = true;
+    renderMetasTab();
+    carregarMetas(true);
+  }
+  if (nome === 'recorrentes' && !RECORRENTES_STATE.iniciado) {
+    RECORRENTES_STATE.iniciado = true;
+    renderRecorrentesTab();
   }
 }
 window.mudarTab = mudarTab;
@@ -1113,6 +1139,7 @@ function atualizarStatsMes() {
     var meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
     var mIdx = parseInt(hoje.split('-')[1], 10) - 1;
     document.getElementById('topbarSub').textContent = 'Resumo de ' + meses[mIdx];
+    if (typeof carregarMetas === 'function') carregarMetas(false);
   }).catch(function (e) { console.error(e); });
 }
 
@@ -1177,7 +1204,7 @@ function opcoesParaCampo(campo) {
   if (campo === 'categoria') return CATEGORIAS.map(function (c) { return { id: c.id, label: c.emoji + ' ' + c.nome }; });
   if (campo === 'origem') return [
     { id: 'manual', label: '📝 Manual' }, { id: 'importado', label: '🏦 Importado' },
-    { id: 'mesclado', label: '🔗 Mesclado' }, { id: 'historico', label: '📜 Histórico' }
+    { id: 'mesclado', label: '🔗 Mesclado' }, { id: 'historico', label: '📜 Histórico' }, { id: 'migrado', label: '🚚 Migrado' }
   ];
   return [];
 }
@@ -1433,6 +1460,8 @@ function renderLinhaLancamento(t) {
   var tagOrigem = '';
   if (t.origem === 'importado') tagOrigem = '<span class="tag tag-importado">🏦 importado</span>';
   else if (t.origem === 'mesclado') tagOrigem = '<span class="tag tag-mesclado">🔗 mesclado</span>';
+  else if (t.origem === 'historico') tagOrigem = '<span class="tag tag-manual">📜 histórico</span>';
+  else if (t.origem === 'migrado') tagOrigem = '<span class="tag tag-manual">🚚 migrado</span>';
   else tagOrigem = '<span class="tag tag-manual">📝 manual</span>';
 
   var parcelaTxt = '';
@@ -1525,6 +1554,28 @@ function renderImportarTab() {
     html += '<div class="btn-row"><button class="btn btn-ghost" onclick="reclassificarReceitasHistoricas()">Buscar e reclassificar</button></div>';
     html += '</div>';
   }
+
+  html += '<div class="card">';
+  html += '<div class="card-title">🧠 Semear regras aprendidas do Categorizador</div>';
+  html += '<div class="card-sub">Sobe o arquivo de backup do Categorizador (JSON) uma vez só — as regras que você já ensinou lá (assinatura → categoria) passam a valer aqui também, em toda importação futura.</div>';
+  html += '<div id="statusSemeadura"></div>';
+  html += '<label class="upload-box" id="uploadBoxRegras" style="padding:16px;">';
+  html += '<div class="ic" style="font-size:20px;margin-bottom:4px;">📤</div>';
+  html += '<div style="font-size:13px;">Toque para escolher o JSON de backup</div>';
+  html += '<input type="file" accept=".json" onchange="onArquivoRegrasSelecionado(event)">';
+  html += '</label>';
+  html += '</div>';
+
+  html += '<div class="card">';
+  html += '<div class="card-title">🚚 Migrar lançamentos do Categorizador</div>';
+  html += '<div class="card-sub">Traz tudo que você já categorizou lá (cartões e conta, fev–ago/2026) para cá. Selecione juntos o JSON de backup e o arquivo categorizador.html (ele tem o extrato da conta). Pode rodar de novo sem duplicar.</div>';
+  html += '<div id="statusMigracao"></div>';
+  html += '<label class="upload-box" id="uploadBoxMigracao" style="padding:16px;">';
+  html += '<div class="ic" style="font-size:20px;margin-bottom:4px;">📤</div>';
+  html += '<div style="font-size:13px;">Toque para escolher o JSON e o HTML</div>';
+  html += '<input type="file" multiple accept=".json,.html,.htm" onchange="onArquivosMigracao(event)">';
+  html += '</label>';
+  html += '</div>';
 
   html += '<div id="mapeamentoCsvWrap"></div>';
   html += '<div id="revisaoImportWrap"></div>';
@@ -1619,6 +1670,38 @@ function diffEmDias(iso1, iso2) {
   return Math.round((d2 - d1) / 86400000);
 }
 
+/* ---------- aprendizado por assinatura (regras) ---------- */
+var REGRAS_CACHE = null;
+
+function assinaturaDescricao(m) {
+  return String(m || '').toUpperCase().replace(/\d+/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
+}
+
+function carregarRegrasCache() {
+  var fb = window._fb;
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'regras');
+  return fb.getDocs(col).then(function (snap) {
+    var mapa = {};
+    snap.forEach(function (d) { mapa[d.id] = d.data(); });
+    REGRAS_CACHE = mapa;
+    return mapa;
+  }).catch(function (e) {
+    console.error('Erro ao carregar regras aprendidas:', e);
+    REGRAS_CACHE = {};
+    return REGRAS_CACHE;
+  });
+}
+
+function salvarRegra(descricao, categoria, subcategoria) {
+  var fb = window._fb;
+  var assinatura = assinaturaDescricao(descricao);
+  if (!assinatura) return Promise.resolve();
+  var ref = fb.doc(fb.db, 'familias', FAMILIA_ID, 'regras', assinatura);
+  var dados = { categoria: categoria, subcategoria: subcategoria || null, origem: 'aprendido', criadoEm: Date.now() };
+  if (REGRAS_CACHE) REGRAS_CACHE[assinatura] = dados;
+  return fb.setDoc(ref, dados);
+}
+
 /* ---------- regras automáticas (exclusão / categorização) ---------- */
 function ehPagamentoDeFatura(descricao) {
   return /^CARTAO\s|PAGAMENTO EFETUADO|PAG\.?\s*FATURA/i.test(descricao || '');
@@ -1626,18 +1709,34 @@ function ehPagamentoDeFatura(descricao) {
 
 function detectarAutoCategoria(descricao) {
   var d = (descricao || '').toUpperCase();
-  if (/RESGATE CDB|APLICACAO CDB|APLIC\.?\s*CDB|COR JSCP|COR RENDIMENTO|REND PAGO APLIC|DIVIDENDO/.test(d)) {
+  if (/RESGATE CDB|APLICACAO CDB|APLIC\.?\s*CDB|COR JSCP|COR RENDIMENTO|REND PAGO APLIC|DIVIDENDO|APLICACAO|CRIPTO|COR COMP|COR ITAUCOR|CONTA GLOBAL/.test(d)) {
     return { categoria: 'investimentos', grupo: 'pontual', quem: 'casal' };
   }
-  if (/SEGURO CARTAO|ITAU SEG/.test(d)) return { categoria: 'seguro', grupo: 'fixo' };
+  if (/SEGURO CARTAO|ITAU SEG|PRUDENTIAL/.test(d)) return { categoria: 'seguro', grupo: 'fixo' };
   if (/^IOF\b/.test(d)) return { categoria: 'outros', grupo: 'pontual' };
   if (/FINANC IMOBILIARIO/.test(d)) return { categoria: 'ap', subcategoria: 'Financiamento', grupo: 'fixo' };
-  if (/ELETROPAULO|\bDA ENERGIA\b/.test(d)) return { categoria: 'ap', subcategoria: 'Energia', grupo: 'fixo' };
-  if (/\bVIVO\b|\bCELULAR\b/.test(d)) return { categoria: 'ap', subcategoria: 'Celular', grupo: 'fixo' };
+  if (/ELETROPAULO|\bENEL\b|\bDA ENERGIA\b/.test(d)) return { categoria: 'ap', subcategoria: 'Energia', grupo: 'fixo' };
+  if (/\bSABESP\b/.test(d)) return { categoria: 'ap', subcategoria: 'Água', grupo: 'fixo' };
+  if (/\bCOMGAS\b/.test(d)) return { categoria: 'ap', subcategoria: 'Gás', grupo: 'fixo' };
+  if (/\bVIVO\b|\bCLARO\b|\bTIM\b/.test(d)) return { categoria: 'ap', subcategoria: 'Celular', grupo: 'fixo' };
+  if (/\bNET\s|\bNET$/.test(d)) return { categoria: 'ap', subcategoria: 'Internet/NET', grupo: 'fixo' };
+  if (/IBIRA/.test(d)) return { categoria: 'dizimo', grupo: 'fixo' };
   if (/DIZIMO/.test(d)) return { categoria: 'dizimo', grupo: 'fixo' };
+  if (/FOLHA.*PARTICIPACAO/.test(d)) return { categoria: 'renda-anual', grupo: 'pontual', quem: 'casal' };
+  if (/FOLHA.*FERIAS/.test(d)) return { categoria: 'renda-anual', grupo: 'pontual', quem: 'casal' };
   if (/FOLHA PAGAMENTO|\bSALARIO\b/.test(d)) return { categoria: 'salario', grupo: 'fixo', quem: 'casal' };
   if (/13[ºO]\s*SALARIO|\bBONUS\b|\bPLR\b/.test(d)) return { categoria: 'renda-anual', grupo: 'pontual', quem: 'casal' };
-  if (/FUND SAUDE|SAUDE ITAU/.test(d)) return { categoria: 'beleza-saude', grupo: 'fixo' };
+  if (/FUND SAUDE|SAUDE ITAU|CLINICA|\bDROGA|\bFARMA|\bHOSP|\bLAB\s|ODONTO/.test(d)) return { categoria: 'beleza-saude', grupo: 'recorrente' };
+  if (/IFOOD|RAPPI|UBER EATS|ZE DELIVERY|RESTAUR|BURGER|PIZZA/.test(d)) return { categoria: 'lazer', subcategoria: 'Restaurante', grupo: 'pontual' };
+  if (/\bPOSTO\b|IPIRANGA|\bSHELL\b/.test(d)) return { categoria: 'carro', subcategoria: 'Combustível', grupo: 'recorrente' };
+  if (/ESTAPAR|ESTACIONA/.test(d)) return { categoria: 'carro', subcategoria: 'Estacionamento', grupo: 'pontual' };
+  if (/\bUBER\b|\b99\b|99APP/.test(d)) return { categoria: 'transporte', grupo: 'recorrente' };
+  if (/PAO DE ACUCAR|CARREFOUR|ST MARCHE|\bMERCADO\b|\bSUPER\b|HORTIF|ATACAD/.test(d)) return { categoria: 'supermercado', grupo: 'recorrente' };
+  if (/NETFLIX|SPOTIFY|\bPRIME\b|DISNEY|\bHBO\b|APPLE\.COM|\bGOOGLE\b|ICLOUD/.test(d)) return { categoria: 'assinaturas', grupo: 'fixo' };
+  if (/\bRENNER\b|\bZARA\b|\bC&A\b|\bCEA\b/.test(d)) return { categoria: 'vestuario', grupo: 'pontual' };
+  if (/MAGALU|\bAMAZON\b|PRIVALIA|MARKETP|\bENJOEI\b|MERCADOLIVRE|\bSHOPP/.test(d)) return { categoria: 'presentes', grupo: 'pontual' };
+  if (/COLEG|\bESCOL|ENSINO/.test(d)) return { categoria: 'escola', grupo: 'fixo' };
+  if (/PIX TRANSF/.test(d)) return { categoria: 'ajuda-familiares', grupo: 'pontual' };
   return null;
 }
 
@@ -2141,7 +2240,12 @@ function prosseguirComItens(itensBrutos, contaId) {
     fb.where('data', '<=', fmtLocal(ateExpandido))
   );
 
-  fb.getDocs(q).then(function (snap) {
+  var promessaExistentes = fb.getDocs(q);
+  var promessaRegras = REGRAS_CACHE ? Promise.resolve(REGRAS_CACHE) : carregarRegrasCache();
+
+  Promise.all([promessaExistentes, promessaRegras]).then(function (resultados) {
+    var snap = resultados[0];
+    var regras = resultados[1] || {};
     var existentes = [];
     snap.forEach(function (d) {
       var t = d.data(); t.id = d.id; existentes.push(t);
@@ -2151,7 +2255,8 @@ function prosseguirComItens(itensBrutos, contaId) {
 
     IMPORT_STATE.itensRevisao = resultado.map(function (r, idx) {
       var imp = r.importada;
-      var auto = detectarAutoCategoria(imp.descricao) || {};
+      var regraAprendida = regras[assinaturaDescricao(imp.descricao)];
+      var auto = regraAprendida || detectarAutoCategoria(imp.descricao) || {};
       return {
         tempId: 'rev-' + idx,
         data: imp.data,
@@ -2170,6 +2275,8 @@ function prosseguirComItens(itensBrutos, contaId) {
         grupo: auto.grupo || (r.candidato ? r.candidato.grupo : null) || 'pontual',
         categoria: auto.categoria || (r.candidato ? r.candidato.categoria : null) || 'outros',
         subcategoria: auto.subcategoria || (r.candidato ? r.candidato.subcategoria : null) || null,
+        viaRegraAprendida: !!regraAprendida,
+        aprenderRegra: false,
         selecionado: r.status !== 'ja_importado',
         acao: r.status === 'sugestao_merge' ? 'mesclar' : 'importar'
       };
@@ -2239,6 +2346,7 @@ function renderLinhaRevisao(item) {
   } else if (item.status === 'multiplos_candidatos') {
     html += '<span class="status-badge status-multi">⚠️ múltiplos candidatos</span>';
   }
+  if (item.viaRegraAprendida) html += '<span class="status-badge" style="background:var(--purple-l);color:var(--purple);">🧠 categoria por regra aprendida</span>';
   html += '</div>';
 
   if (item.status === 'multiplos_candidatos') {
@@ -2258,6 +2366,9 @@ function renderLinhaRevisao(item) {
     html += selectGrupoInline(item.tempId, item.grupo);
     html += selectCategoriaInline(item.tempId, item.categoria);
     html += '</div>';
+    html += '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-top:7px;">';
+    html += '<input type="checkbox" ' + (item.aprenderRegra ? 'checked' : '') + ' onchange="toggleAprenderRegra(\'' + item.tempId + '\', this.checked)" style="width:16px;height:16px;">';
+    html += '🧠 lembrar essa categoria pra lançamentos parecidos no futuro</label>';
   }
 
   if (item.status === 'sugestao_merge') {
@@ -2324,6 +2435,12 @@ function atualizarCampoRevisao(tempId, campo, valor) {
   if (item) item[campo] = valor;
 }
 window.atualizarCampoRevisao = atualizarCampoRevisao;
+
+function toggleAprenderRegra(tempId, checked) {
+  var item = acharItemRevisao(tempId);
+  if (item) item.aprenderRegra = checked;
+}
+window.toggleAprenderRegra = toggleAprenderRegra;
 
 function escolherCandidato(tempId, candidatoId) {
   var item = acharItemRevisao(tempId);
@@ -2392,6 +2509,9 @@ function confirmarImportacao() {
         criadoEm: Date.now()
       };
       promessas.push(fb.addDoc(col, docData));
+    }
+    if (item.aprenderRegra && item.categoria) {
+      promessas.push(salvarRegra(item.descricao, item.categoria, item.subcategoria));
     }
   }
 
@@ -3096,7 +3216,7 @@ function renderLogImportacoes(itens) {
   if (!wrap) return;
   if (itens.length === 0) { wrap.innerHTML = ''; return; }
 
-  var nomesTipos = { extrato: '🏦 Extrato', fatura: '💳 Fatura', historico: '📜 Histórico' };
+  var nomesTipos = { extrato: '🏦 Extrato', fatura: '💳 Fatura', historico: '📜 Histórico', migracao: '🚚 Migração' };
 
   var html = '<div class="card">';
   html += '<div class="card-title">📜 Últimas importações</div>';
@@ -3185,6 +3305,1071 @@ function reclassificarReceitasHistoricas() {
   });
 }
 window.reclassificarReceitasHistoricas = reclassificarReceitasHistoricas;
+
+/* ==================================================================== */
+/* ==================== SEMEAR REGRAS DO CATEGORIZADOR ================= */
+/* ==================================================================== */
+
+// 'Combustível/Transporte' do Categorizador mistura combustível, Uber, estacionamento e pedágio/TAG.
+// Separa pela descrição do estabelecimento (usado na migração e na semeadura de regras).
+function refinarDestinoPorDescricao(nomeCatOrigem, descricao, destino) {
+  if (nomeCatOrigem !== 'Combustível/Transporte' || !destino) return destino;
+  var d = String(descricao || '').toUpperCase();
+  if (/\bUBER\b|\b99\s*(POP|TAXI|APP)|\bTAXI\b|CABIFY|\bLYFT\b/.test(d)) return { categoria: 'transporte' };
+  if (/TAGITAU|SEM\s*PARAR|CONECTCAR|VELOE|PEDAGIO|PEDÁGIO|MOVE\s*MAIS/.test(d)) return { categoria: 'carro', subcategoria: 'Pedágio/TAG' };
+  if (/ESTAC|PARKING|\bPARK\b|NOVIPAR|ZONA\s*AZUL|CLOUDPARK|PARQUE/.test(d)) return { categoria: 'carro', subcategoria: 'Estacionamento' };
+  if (/POSTO|\bPST\b|COMBUST|SHELL|IPIRANGA|PETROBRAS|\bALE\b|ABASTEC/.test(d)) return { categoria: 'carro', subcategoria: 'Combustível' };
+  return { categoria: 'carro' };
+}
+
+var MAPA_CATEGORIA_CATEGORIZADOR = {
+  'Salário': { categoria: 'salario' },
+  'Bônus/PLR': { categoria: 'renda-anual' },
+  'Férias': { categoria: 'renda-anual' },
+  'Rescisão': { categoria: 'outros' },
+  'Investimento/Aplicação': { categoria: 'investimentos' },
+  'Resgate/Rendimento': { categoria: 'investimentos' },
+  'Transf. entre contas próprias': { categoria: 'investimentos' },
+  'Pagamento de fatura (cartão)': null,
+  'Financiamento imóvel atual': { categoria: 'ap', subcategoria: 'Financiamento' },
+  'Escola': { categoria: 'escola' },
+  'Condomínio': { categoria: 'ap', subcategoria: 'Condomínio' },
+  'IPTU': { categoria: 'ap', subcategoria: 'IPTU' },
+  'Dízimo (igreja)': { categoria: 'dizimo' },
+  'Diarista': { categoria: 'ap', subcategoria: 'Diarista' },
+  'Contas de consumo (luz/água/tel)': { categoria: 'ap' },
+  'Cartão de crédito (fatura)': null,
+  'Supermercado/Mercado': { categoria: 'supermercado' },
+  'Restaurantes/Delivery': { categoria: 'lazer', subcategoria: 'Restaurante' },
+  'Combustível/Transporte': { categoria: 'carro', subcategoria: 'Combustível' },
+  'Saúde': { categoria: 'beleza-saude' },
+  'Vestuário': { categoria: 'vestuario' },
+  'Assinaturas/Serviços': { categoria: 'assinaturas' },
+  'Presentes/Compras': { categoria: 'presentes' },
+  'Ajuda a familiares/pessoas': { categoria: 'ajuda-familiares' },
+  'Lazer/Restaurantes': { categoria: 'lazer' },
+  'Viagem': { categoria: 'lazer', subcategoria: 'Viagens' },
+  'Reforma/Obra': { categoria: 'compra-ap' },
+  'Pontual/Grande (não recorrente)': { categoria: 'outros' },
+  'Outros': { categoria: 'outros' },
+  '(a classificar)': null,
+  'Outras receitas': { categoria: 'outros' },
+  'Previdencia': { categoria: 'investimentos' },
+  'Seguros': { categoria: 'seguro' },
+  'Mesada': { categoria: 'mesada' },
+  'Drogaria': { categoria: 'beleza-saude', subcategoria: 'Farmácia' },
+  'Taxas': { categoria: 'outros' },
+  'IPVA': { categoria: 'carro' },
+  'Seguro': { categoria: 'seguro' }
+};
+
+function onArquivoRegrasSelecionado(evt) {
+  var file = evt.target.files[0];
+  if (!file) return;
+  document.getElementById('statusSemeadura').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⏳</div>Lendo arquivo...</div>';
+
+  lerArquivoComoTexto(file, 'UTF-8').then(function (texto) {
+    var dados;
+    try { dados = JSON.parse(texto); } catch (e) { throw new Error('Arquivo não é um JSON válido.'); }
+    var rulesOrigem = dados.RULES || {};
+    var assinaturas = Object.keys(rulesOrigem);
+    if (assinaturas.length === 0) throw new Error('Não encontrei "RULES" nesse arquivo — confirme que é o backup do Categorizador.');
+
+    var mapeadas = {};
+    var ignoradas = 0;
+    var naoMapeadas = {};
+    assinaturas.forEach(function (assin) {
+      var nomeCatOrigem = rulesOrigem[assin];
+      var destino = MAPA_CATEGORIA_CATEGORIZADOR[nomeCatOrigem];
+      if (destino === null) { ignoradas++; return; }
+      if (destino === undefined) {
+        naoMapeadas[nomeCatOrigem] = (naoMapeadas[nomeCatOrigem] || 0) + 1;
+        ignoradas++;
+        return;
+      }
+      destino = refinarDestinoPorDescricao(nomeCatOrigem, assin, destino);
+      mapeadas[assin] = { categoria: destino.categoria, subcategoria: destino.subcategoria || null, origem: 'categorizador', criadoEm: Date.now() };
+    });
+
+    renderResumoSemeadura(mapeadas, ignoradas, naoMapeadas);
+  }).catch(function (err) {
+    console.error(err);
+    document.getElementById('statusSemeadura').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⚠️</div>' + err.message + '</div>';
+  });
+}
+window.onArquivoRegrasSelecionado = onArquivoRegrasSelecionado;
+
+function renderResumoSemeadura(mapeadas, ignoradas, naoMapeadas) {
+  var qtd = Object.keys(mapeadas).length;
+  var html = '<div class="resumo-import">';
+  html += '<div class="resumo-chip"><b>' + qtd + '</b>regras serão criadas/atualizadas</div>';
+  if (ignoradas > 0) html += '<div class="resumo-chip"><b>' + ignoradas + '</b>ignoradas (categorias neutras/sem equivalente)</div>';
+  html += '</div>';
+  var chaves = Object.keys(naoMapeadas);
+  if (chaves.length > 0) {
+    html += '<div class="card-sub">Categorias do Categorizador sem mapeamento (avise se quiser que eu trate): ' + chaves.join(', ') + '</div>';
+  }
+  html += '<div id="progressoSemeadura"></div>';
+  html += '<div class="btn-row"><button class="btn btn-primary" onclick="confirmarSemeaduraRegras()">✅ Semear ' + qtd + ' regras</button></div>';
+  document.getElementById('statusSemeadura').innerHTML = html;
+  IMPORT_STATE._regrasParaSemear = mapeadas;
+}
+
+function confirmarSemeaduraRegras() {
+  var fb = window._fb;
+  var mapeadas = IMPORT_STATE._regrasParaSemear || {};
+  var assinaturas = Object.keys(mapeadas);
+  if (assinaturas.length === 0) { alert('Nada para semear.'); return; }
+
+  var TAMANHO_LOTE = 450;
+  var lotes = [];
+  for (var i = 0; i < assinaturas.length; i += TAMANHO_LOTE) lotes.push(assinaturas.slice(i, i + TAMANHO_LOTE));
+  var gravadas = 0;
+
+  function processarLote(idx) {
+    if (idx >= lotes.length) {
+      document.getElementById('progressoSemeadura').innerHTML = '<div class="empty-state"><div class="ic">✅</div>' + gravadas + ' regras semeadas! Já valem pra próxima importação.</div>';
+      REGRAS_CACHE = null; // força recarregar na próxima importação
+      IMPORT_STATE._regrasParaSemear = null;
+      return;
+    }
+    var batch = fb.writeBatch(fb.db);
+    var lote = lotes[idx];
+    for (var j = 0; j < lote.length; j++) {
+      var assin = lote[j];
+      var ref = fb.doc(fb.db, 'familias', FAMILIA_ID, 'regras', assin);
+      batch.set(ref, mapeadas[assin]);
+    }
+    batch.commit().then(function () {
+      gravadas += lote.length;
+      document.getElementById('progressoSemeadura').innerHTML = '<div class="card-sub">Gravando... ' + gravadas + ' / ' + assinaturas.length + '</div>';
+      processarLote(idx + 1);
+    }).catch(function (e) {
+      console.error(e);
+      document.getElementById('progressoSemeadura').innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>Erro: ' + e.message + ' (gravadas até agora: ' + gravadas + ')</div>';
+    });
+  }
+  processarLote(0);
+}
+window.confirmarSemeaduraRegras = confirmarSemeaduraRegras;
+
+/* ==================================================================== */
+/* ==================== MIGRAÇÃO DO CATEGORIZADOR ====================== */
+/* ==================================================================== */
+
+var MIGRACAO_CARTOES = {
+  'THEONE': 'cartao-the-one', 'BLACK': 'cartao-the-one',
+  'AZUL': 'azul-infinite', 'VISA': 'cartao-visa', 'VISAINFINITE': 'cartao-visa',
+  'MASTER': 'cartao-master', 'CONTA': 'conta-itau'
+};
+var MIGRACAO_STATE = { dados: null, baked: [], arquivos: [], plano: null, existentes: null, gravando: false };
+
+function hashMigracao(s, seed) {
+  var h = seed;
+  for (var i = 0; i < s.length; i++) { h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; }
+  return h.toString(36);
+}
+
+function idDocMigracao(chave) {
+  return 'mig_' + hashMigracao(chave, 5381) + hashMigracao(chave, 52711) + '_' + chave.length;
+}
+
+function titularDeHolder(holder) {
+  var h = String(holder || '').toLowerCase().replace(/^\s+/, '');
+  if (h.indexOf('aline') === 0) return 'aline';
+  if (h.indexOf('tarcisio') === 0 || h.indexOf('tarcísio') === 0) return 'tarcisio';
+  return '';
+}
+
+function categoriaCompativel(categoriaId, tipo) {
+  for (var i = 0; i < CATEGORIAS.length; i++) {
+    if (CATEGORIAS[i].id === categoriaId) return CATEGORIAS[i].aplicaEm.indexOf(tipo) !== -1;
+  }
+  return false;
+}
+
+function dataISODeAAAAMMDD(d) {
+  var s = String(d || '');
+  if (!/^\d{8}$/.test(s)) return null;
+  return s.substring(0, 4) + '-' + s.substring(4, 6) + '-' + s.substring(6, 8);
+}
+
+// Monta o plano de migração (função pura: não toca no Firestore)
+function montarPlanoMigracao(dados, baked, opcoes) {
+  var st = dados.ST || {};
+  var apagados = {};
+  var del = dados.DELETED || [];
+  for (var di = 0; di < del.length; di++) apagados[del[di]] = true;
+
+  var todos = [];
+  var vistos = {};
+  var fontes = (dados.IMPORTED || []).concat(baked || []);
+  for (var i = 0; i < fontes.length; i++) {
+    var t = fontes[i];
+    var chave = t.src + '|' + t.id;
+    if (vistos[chave]) continue;
+    vistos[chave] = true;
+    todos.push({ t: t, chave: chave });
+  }
+
+  var plano = { itens: [], ignorados: {}, semClassificacao: 0, semTitular: 0, estornos: 0, parcelados: 0, naoMapeadas: {}, porConta: {}, total: todos.length };
+
+  function ignorar(motivo) { plano.ignorados[motivo] = (plano.ignorados[motivo] || 0) + 1; }
+
+  for (var j = 0; j < todos.length; j++) {
+    var it = todos[j].t;
+    var key = todos[j].chave;
+    if (apagados[key]) { ignorar('Apagados no Categorizador'); continue; }
+
+    var cls = st[key];
+    var nomeCat = cls && cls.cat ? cls.cat : '(a classificar)';
+    if (nomeCat === 'Transf. entre contas próprias') { ignorar('Transferências entre contas próprias'); continue; }
+    if (nomeCat === 'Pagamento de fatura (cartão)' || nomeCat === 'Cartão de crédito (fatura)') { ignorar('Pagamento de fatura (já contado nas compras)'); continue; }
+    if (nomeCat === '(a classificar)') { ignorar('Sem classificação'); plano.semClassificacao++; continue; }
+
+    var destino = MAPA_CATEGORIA_CATEGORIZADOR[nomeCat];
+    destino = refinarDestinoPorDescricao(nomeCat, it.m, destino);
+    if (destino === undefined || destino === null) {
+      plano.naoMapeadas[nomeCat] = (plano.naoMapeadas[nomeCat] || 0) + 1;
+      ignorar('Categoria sem equivalente');
+      continue;
+    }
+
+    var cartaoChave = String(it.card || 'Conta').toUpperCase().replace(/\s+/g, '');
+    var conta = MIGRACAO_CARTOES[cartaoChave];
+    if (!conta) { ignorar('Cartão desconhecido (' + (it.card || '?') + ')'); continue; }
+
+    var dataISO = dataISODeAAAAMMDD(it.d);
+    var valor = Number(it.a);
+    if (!dataISO || isNaN(valor) || valor === 0) { ignorar('Data ou valor inválido'); continue; }
+
+    var tipo = valor < 0 ? 'despesa' : 'receita';
+    var categoria = destino.categoria;
+    var subcategoria = destino.subcategoria || null;
+    var descricao = String(it.m || '').replace(/^\s+|\s+$/g, '');
+    var ehEstorno = false;
+
+    if (tipo === 'receita' && it.src === 'cartao') {
+      if (opcoes.estornos === 'ignorar') { ignorar('Estornos/créditos no cartão'); continue; }
+      ehEstorno = true;
+      categoria = 'outros'; subcategoria = null;
+      descricao = 'Estorno: ' + descricao;
+      plano.estornos++;
+    }
+    if (!categoriaCompativel(categoria, tipo)) { categoria = 'outros'; subcategoria = null; }
+
+    var quem = titularDeHolder(it.holder) || opcoes.quemPadrao;
+    if (!titularDeHolder(it.holder)) plano.semTitular++;
+
+    var parcN = parseInt(it.parcN, 10);
+    var parcTot = parseInt(it.parcTot, 10);
+    var parcelado = !isNaN(parcN) && !isNaN(parcTot) && parcTot > 1 && !ehEstorno;
+    if (parcelado) plano.parcelados++;
+    var grupo = parcelado ? 'parcelado' : (GRUPO_PADRAO_POR_CATEGORIA[categoria] || 'pontual');
+
+    plano.porConta[conta] = (plano.porConta[conta] || 0) + 1;
+    plano.itens.push({
+      docId: idDocMigracao(key),
+      dados: {
+        data: dataISO,
+        valor: Math.abs(valor),
+        tipo: tipo,
+        quem: quem,
+        grupo: grupo,
+        categoria: categoria,
+        subcategoria: subcategoria,
+        conta: conta,
+        descricao: descricao,
+        origem: 'migrado',
+        fitid: null,
+        parcelado: parcelado,
+        parcelaAtual: parcelado ? parcN : null,
+        totalParcelas: parcelado ? parcTot : null,
+        grupoParcelamentoId: null,
+        competencia: it.mo ? String(it.mo) : null,
+        migracaoChave: key,
+        registradoPor: window._userName || null,
+        criadoEm: Date.now()
+      }
+    });
+  }
+  return plano;
+}
+
+function extrairBakedDoHTML(texto) {
+  var ini = texto.indexOf('const BAKED');
+  if (ini === -1) return [];
+  var abre = texto.indexOf('[', ini);
+  if (abre === -1) return [];
+  var prof = 0, fim = -1, emStr = false, esc = false;
+  for (var i = abre; i < texto.length; i++) {
+    var c = texto.charAt(i);
+    if (emStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') emStr = false;
+    } else if (c === '"') emStr = true;
+    else if (c === '[') prof++;
+    else if (c === ']') { prof--; if (prof === 0) { fim = i; break; } }
+  }
+  if (fim === -1) return [];
+  var lista = JSON.parse(texto.substring(abre, fim + 1));
+  for (var k = 0; k < lista.length; k++) {
+    if (!lista[k].src) lista[k].src = 'conta';
+    if (!lista[k].card) lista[k].card = 'Conta';
+  }
+  return lista;
+}
+
+function onArquivosMigracao(evt) {
+  var files = evt.target.files;
+  if (!files || files.length === 0) return;
+  var status = document.getElementById('statusMigracao');
+  status.innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⏳</div>Lendo arquivos...</div>';
+  MIGRACAO_STATE.dados = null; MIGRACAO_STATE.baked = []; MIGRACAO_STATE.arquivos = [];
+
+  var leituras = [];
+  for (var i = 0; i < files.length; i++) {
+    (function (f) {
+      leituras.push(lerArquivoComoTexto(f, 'UTF-8').then(function (txt) { return { nome: f.name, texto: txt }; }));
+    })(files[i]);
+  }
+  Promise.all(leituras).then(function (arqs) {
+    for (var a = 0; a < arqs.length; a++) {
+      var nome = arqs[a].nome;
+      var texto = arqs[a].texto;
+      if (/\.json$/i.test(nome)) {
+        var obj;
+        try { obj = JSON.parse(texto); } catch (e) { throw new Error('"' + nome + '" não é um JSON válido.'); }
+        if (!obj.ST || !obj.IMPORTED) throw new Error('"' + nome + '" não parece o backup do Categorizador (faltam ST/IMPORTED).');
+        MIGRACAO_STATE.dados = obj;
+        MIGRACAO_STATE.arquivos.push(nome);
+      } else {
+        var lista = extrairBakedDoHTML(texto);
+        MIGRACAO_STATE.baked = MIGRACAO_STATE.baked.concat(lista);
+        MIGRACAO_STATE.arquivos.push(nome);
+      }
+    }
+    if (!MIGRACAO_STATE.dados) throw new Error('Preciso do JSON de backup do Categorizador (e, opcionalmente, o categorizador.html com o extrato de conta).');
+    return carregarMigradosExistentes();
+  }).then(function () {
+    recalcularPlanoMigracao();
+  }).catch(function (err) {
+    console.error(err);
+    status.innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⚠️</div>' + err.message + '</div>';
+  });
+}
+window.onArquivosMigracao = onArquivosMigracao;
+
+function carregarMigradosExistentes() {
+  var fb = window._fb;
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
+  var q = fb.query(col, fb.where('origem', '==', 'migrado'));
+  return fb.getDocs(q).then(function (snap) {
+    var mapa = {};
+    snap.forEach(function (d) { mapa[d.id] = true; });
+    MIGRACAO_STATE.existentes = mapa;
+  });
+}
+
+function opcoesMigracaoAtuais() {
+  var selQuem = document.getElementById('migQuemPadrao');
+  var selEst = document.getElementById('migEstornos');
+  return {
+    quemPadrao: selQuem ? selQuem.value : 'familia',
+    estornos: selEst ? selEst.value : 'receita'
+  };
+}
+
+function recalcularPlanoMigracao() {
+  var opc = MIGRACAO_STATE.plano && MIGRACAO_STATE.opcoes ? opcoesMigracaoAtuais() : { quemPadrao: 'familia', estornos: 'receita' };
+  MIGRACAO_STATE.opcoes = opc;
+  MIGRACAO_STATE.plano = montarPlanoMigracao(MIGRACAO_STATE.dados, MIGRACAO_STATE.baked, opc);
+  renderPlanoMigracao();
+}
+window.recalcularPlanoMigracao = recalcularPlanoMigracao;
+
+function onOpcaoMigracaoMudou() {
+  MIGRACAO_STATE.opcoes = opcoesMigracaoAtuais();
+  MIGRACAO_STATE.plano = montarPlanoMigracao(MIGRACAO_STATE.dados, MIGRACAO_STATE.baked, MIGRACAO_STATE.opcoes);
+  renderPlanoMigracao();
+}
+window.onOpcaoMigracaoMudou = onOpcaoMigracaoMudou;
+
+function renderPlanoMigracao() {
+  var p = MIGRACAO_STATE.plano;
+  var opc = MIGRACAO_STATE.opcoes || { quemPadrao: 'familia', estornos: 'receita' };
+  var existentes = MIGRACAO_STATE.existentes || {};
+  var novos = [];
+  var jaMigrados = 0;
+  var somaDesp = 0, somaRec = 0;
+  for (var i = 0; i < p.itens.length; i++) {
+    if (existentes[p.itens[i].docId]) { jaMigrados++; continue; }
+    novos.push(p.itens[i]);
+    if (p.itens[i].dados.tipo === 'despesa') somaDesp += p.itens[i].dados.valor;
+    else somaRec += p.itens[i].dados.valor;
+  }
+  MIGRACAO_STATE.novos = novos;
+  MIGRACAO_STATE.somaDesp = somaDesp;
+  MIGRACAO_STATE.somaRec = somaRec;
+
+  var html = '<div class="resumo-import">';
+  html += '<div class="resumo-chip"><b>' + novos.length + '</b>serão migrados</div>';
+  if (jaMigrados > 0) html += '<div class="resumo-chip"><b>' + jaMigrados + '</b>já migrados antes (pulados)</div>';
+  html += '<div class="resumo-chip"><b>' + p.parcelados + '</b>parcelados</div>';
+  if (p.estornos > 0) html += '<div class="resumo-chip"><b>' + p.estornos + '</b>estornos/créditos</div>';
+  html += '</div>';
+  html += '<div class="card-sub">' + fmtBRL(somaDesp) + ' em despesas · ' + fmtBRL(somaRec) + ' em receitas</div>';
+
+  var nomesContas = {};
+  for (var c = 0; c < CONTAS.length; c++) nomesContas[CONTAS[c].id] = CONTAS[c].nome;
+  var partes = [];
+  for (var k in p.porConta) {
+    if (Object.prototype.hasOwnProperty.call(p.porConta, k)) partes.push((nomesContas[k] || k) + ': ' + p.porConta[k]);
+  }
+  if (partes.length) html += '<div class="card-sub">Por conta — ' + partes.join(' · ') + '</div>';
+
+  var ign = [];
+  for (var m in p.ignorados) {
+    if (Object.prototype.hasOwnProperty.call(p.ignorados, m)) ign.push(m + ': ' + p.ignorados[m]);
+  }
+  if (ign.length) html += '<div class="card-sub">Não entram — ' + ign.join(' · ') + '</div>';
+
+  var nm = Object.keys(p.naoMapeadas);
+  if (nm.length) html += '<div class="card-sub">⚠️ Categorias sem equivalente (ficaram de fora): ' + nm.join(', ') + '</div>';
+
+  html += '<div class="label">Lançamentos sem titular no Categorizador (' + p.semTitular + ') ficam como</div>';
+  html += '<select class="select-inline input" id="migQuemPadrao" onchange="onOpcaoMigracaoMudou()">';
+  for (var q = 0; q < QUEM_OPCOES.length; q++) {
+    html += '<option value="' + QUEM_OPCOES[q].id + '"' + (opc.quemPadrao === QUEM_OPCOES[q].id ? ' selected' : '') + '>' + QUEM_OPCOES[q].emoji + ' ' + QUEM_OPCOES[q].nome + '</option>';
+  }
+  html += '</select>';
+  html += '<div class="label">Estornos e créditos no cartão</div>';
+  html += '<select class="select-inline input" id="migEstornos" onchange="onOpcaoMigracaoMudou()">';
+  html += '<option value="receita"' + (opc.estornos === 'receita' ? ' selected' : '') + '>Registrar como receita em "Outros" (mantém o saldo correto)</option>';
+  html += '<option value="ignorar"' + (opc.estornos === 'ignorar' ? ' selected' : '') + '>Ignorar</option>';
+  html += '</select>';
+
+  html += '<div id="progressoMigracao"></div>';
+  if (novos.length > 0) {
+    html += '<div class="btn-row"><button class="btn btn-primary" id="btnMigrar" onclick="confirmarMigracao()">✅ Migrar ' + novos.length + ' lançamentos</button></div>';
+  } else {
+    html += '<div class="empty-state" style="padding:12px;"><div class="ic">✅</div>Nada novo para migrar.</div>';
+  }
+  document.getElementById('statusMigracao').innerHTML = html;
+}
+
+function confirmarMigracao() {
+  if (MIGRACAO_STATE.gravando) return;
+  var fb = window._fb;
+  var novos = MIGRACAO_STATE.novos || [];
+  if (novos.length === 0) return;
+  MIGRACAO_STATE.gravando = true;
+  var btn = document.getElementById('btnMigrar');
+  if (btn) btn.disabled = true;
+
+  var TAMANHO_LOTE = 400;
+  var gravados = 0;
+  var prog = document.getElementById('progressoMigracao');
+
+  function lote(idx) {
+    if (idx >= novos.length) {
+      var nomeArq = MIGRACAO_STATE.arquivos.join(' + ');
+      registrarLogImportacao('migracao', nomeArq, gravados, { somaDespesa: MIGRACAO_STATE.somaDesp, somaReceita: MIGRACAO_STATE.somaRec });
+      MIGRACAO_STATE.gravando = false;
+      MIGRACAO_STATE.existentes = MIGRACAO_STATE.existentes || {};
+      for (var e = 0; e < novos.length; e++) MIGRACAO_STATE.existentes[novos[e].docId] = true;
+      prog.innerHTML = '<div class="empty-state"><div class="ic">✅</div>' + gravados + ' lançamentos migrados! Veja na aba Lançamentos (filtro Origem → Migrado) e no Fluxo.</div>';
+      var b = document.getElementById('btnMigrar');
+      if (b) b.style.display = 'none';
+      return;
+    }
+    var batch = fb.writeBatch(fb.db);
+    var fatia = novos.slice(idx, idx + TAMANHO_LOTE);
+    for (var j = 0; j < fatia.length; j++) {
+      var ref = fb.doc(fb.db, 'familias', FAMILIA_ID, 'transacoes', fatia[j].docId);
+      batch.set(ref, fatia[j].dados);
+    }
+    batch.commit().then(function () {
+      gravados += fatia.length;
+      prog.innerHTML = '<div class="card-sub">Gravando... ' + gravados + ' / ' + novos.length + '</div>';
+      lote(idx + TAMANHO_LOTE);
+    }).catch(function (err) {
+      console.error(err);
+      MIGRACAO_STATE.gravando = false;
+      var b2 = document.getElementById('btnMigrar');
+      if (b2) b2.disabled = false;
+      prog.innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>Erro: ' + err.message + ' (gravados até agora: ' + gravados + '). Pode tentar de novo — o que já foi gravado não duplica.</div>';
+    });
+  }
+  lote(0);
+}
+window.confirmarMigracao = confirmarMigracao;
+
+/* ==================================================================== */
+/* ==================== METAS DE REDUÇÃO =============================== */
+/* ==================================================================== */
+
+var METAS_STATE = { cfg: null, transacoes: [], abertos: null, carregando: false, tabIniciada: false };
+
+function metasCfgPadrao() {
+  return {
+    receita: { mensal: 38000, bonusAnual: 400000 },
+    fixos: { hoje: 36500, posMudanca: 62000 },
+    emprestimos: { valor: 6800, ate: '2027-03' },
+    inicio: '2026-10',
+    metas: [
+      { id: 'presentes', nome: 'Presentes e compras', emoji: '🎁', filtros: [{ categoria: 'presentes' }, { categoria: 'vestuario' }], meta: 2000, base: 10155 },
+      { id: 'restaurantes', nome: 'Restaurantes', emoji: '🍽️', filtros: [{ categoria: 'lazer', sub: 'Restaurante' }], meta: 3000, base: 5054 },
+      { id: 'farmacia', nome: 'Farmácia', emoji: '💊', filtros: [{ categoria: 'beleza-saude', sub: 'Farmácia' }], meta: 2000, base: 2890 },
+      { id: 'combustivel', nome: 'Combustível', emoji: '⛽', filtros: [{ categoria: 'carro', sub: 'Combustível' }], meta: 900, base: 632 },
+      { id: 'viagens', nome: 'Viagens', emoji: '✈️', filtros: [{ categoria: 'lazer', sub: 'Viagens' }], meta: 2200, base: null, avisarParcelas: true },
+      { id: 'uber', nome: 'Uber e táxi', emoji: '🚕', filtros: [{ categoria: 'transporte' }], meta: null, base: 1141 }
+    ]
+  };
+}
+
+function escMeta(s) {
+  return String(s === null || s === undefined ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function metasNumero(v) {
+  var n = parseFloat(String(v).replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+
+function metasRefDoc() {
+  var fb = window._fb;
+  return fb.doc(fb.db, 'familias', FAMILIA_ID, 'configuracoes', 'metas');
+}
+
+function carregarMetas(comParcelados) {
+  var fb = window._fb;
+  if (!fb || METAS_STATE.carregando) return;
+  METAS_STATE.carregando = true;
+
+  var pCfg = METAS_STATE.cfg ? Promise.resolve(METAS_STATE.cfg) : fb.getDoc(metasRefDoc()).then(function (snap) {
+    var cfg = metasCfgPadrao();
+    if (snap.exists()) {
+      var d = snap.data();
+      if (d.receita) cfg.receita = d.receita;
+      if (d.fixos) cfg.fixos = d.fixos;
+      if (d.emprestimos) cfg.emprestimos = d.emprestimos;
+      if (d.inicio) cfg.inicio = d.inicio;
+      if (d.metas) cfg.metas = d.metas;
+    }
+    return cfg;
+  });
+
+  pCfg.then(function (cfg) {
+    METAS_STATE.cfg = cfg;
+    var hoje = todayISO();
+    var ini = primeiroDiaMesISO(hoje);
+    var iniCfg = cfg.inicio + '-01';
+    if (iniCfg < ini) ini = iniCfg;
+    var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
+    var q = fb.query(col, fb.where('data', '>=', ini));
+    var promessas = [fb.getDocs(q)];
+    if (comParcelados || METAS_STATE.abertos === null) {
+      promessas.push(fb.getDocs(fb.query(col, fb.where('parcelado', '==', true))));
+    }
+    return Promise.all(promessas);
+  }).then(function (res) {
+    var lista = [];
+    res[0].forEach(function (d) { var t = d.data(); t.id = d.id; lista.push(t); });
+    METAS_STATE.transacoes = lista;
+    if (res[1]) {
+      var parc = [];
+      res[1].forEach(function (d) { var t = d.data(); t.id = d.id; parc.push(t); });
+      METAS_STATE.abertos = calcularParcelamentosAbertos(parc);
+    }
+    METAS_STATE.carregando = false;
+    renderMetasStrip();
+    if (METAS_STATE.tabIniciada) renderMetasTab();
+  }).catch(function (e) {
+    console.error('Erro ao carregar metas:', e);
+    METAS_STATE.carregando = false;
+  });
+}
+window.carregarMetas = carregarMetas;
+
+function metasCombina(meta, t) {
+  for (var i = 0; i < meta.filtros.length; i++) {
+    var f = meta.filtros[i];
+    if (t.categoria === f.categoria && (!f.sub || t.subcategoria === f.sub)) return true;
+  }
+  return false;
+}
+
+// Gasto da meta por mês (AAAA-MM) + parcelas de compras anteriores no mês atual
+function metasCalcularMeta(meta) {
+  var porMes = {};
+  var mesAtual = todayISO().substring(0, 7);
+  var parcAntigas = 0;
+  var ts = METAS_STATE.transacoes;
+  for (var i = 0; i < ts.length; i++) {
+    var t = ts[i];
+    if (t.tipo !== 'despesa' || !metasCombina(meta, t)) continue;
+    var ym = String(t.data).substring(0, 7);
+    porMes[ym] = (porMes[ym] || 0) + t.valor;
+    if (ym === mesAtual && t.parcelado && t.parcelaAtual > 1) parcAntigas += t.valor;
+  }
+  var gasto = porMes[mesAtual] || 0;
+
+  var economia = null;
+  if (meta.base !== null && meta.base !== undefined) {
+    var cfgIni = METAS_STATE.cfg.inicio;
+    var soma = 0, n = 0;
+    var cursor = cfgIni + '-01';
+    while (cursor.substring(0, 7) < mesAtual) {
+      soma += meta.base - (porMes[cursor.substring(0, 7)] || 0);
+      n++;
+      cursor = addMeses(cursor, 1);
+    }
+    economia = { acumulada: soma, meses: n, noMes: meta.base - gasto };
+  }
+
+  var abertos = { n: 0, restante: 0, fim: null };
+  var ab = METAS_STATE.abertos || [];
+  for (var j = 0; j < ab.length; j++) {
+    if (metasCombina(meta, ab[j])) {
+      abertos.n++;
+      abertos.restante += ab[j].restante;
+      var fimMes = addMeses(ab[j].ultimaData, ab[j].falta).substring(0, 7);
+      if (!abertos.fim || fimMes > abertos.fim) abertos.fim = fimMes;
+    }
+  }
+  return { gasto: gasto, parcAntigas: parcAntigas, economia: economia, abertos: abertos };
+}
+
+function metasCor(pct) {
+  if (pct > 1) return 'var(--despesa)';
+  if (pct >= 0.8) return 'var(--alerta)';
+  return 'var(--receita)';
+}
+
+function metasNomeMes(ym) {
+  var meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  var p = ym.split('-');
+  return meses[parseInt(p[1], 10) - 1] + '/' + p[0].substring(2);
+}
+
+function metasBarra(pct) {
+  var w = Math.min(100, Math.round(pct * 100));
+  return '<div class="meta-bar"><div class="meta-fill" style="width:' + w + '%;background:' + metasCor(pct) + ';"></div></div>';
+}
+
+function renderMetasStrip() {
+  var el = document.getElementById('metasStrip');
+  if (!el || !METAS_STATE.cfg) return;
+  var metas = METAS_STATE.cfg.metas;
+  var html = '';
+  for (var i = 0; i < metas.length; i++) {
+    var m = metas[i];
+    if (!m.meta) continue;
+    var c = metasCalcularMeta(m);
+    var pct = c.gasto / m.meta;
+    var resta = m.meta - c.gasto;
+    var txt = resta >= 0 ? 'restam ' + fmtBRL(resta) : 'passou ' + fmtBRL(-resta);
+    html += '<div class="meta-mini"><div class="meta-mini-top"><span>' + m.emoji + ' ' + escMeta(m.nome) + '</span><b style="color:' + metasCor(pct) + ';">' + txt + '</b></div>' + metasBarra(pct) + '</div>';
+  }
+  if (!html) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="card"><div class="card-title">🎯 Metas do mês</div><div class="card-sub">Quanto ainda dá para gastar em cada uma</div>' + html + '</div>';
+}
+
+function renderMetasTab() {
+  var wrap = document.getElementById('metasWrap');
+  if (!wrap) return;
+  var cfg = METAS_STATE.cfg;
+  if (!cfg) { wrap.innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Carregando...</div>'; return; }
+
+  var hoje = todayISO();
+  var mesAtual = hoje.substring(0, 7);
+  var diaAtual = parseInt(hoje.substring(8, 10), 10);
+  var diasMes = parseInt(ultimoDiaMesISO(hoje).substring(8, 10), 10);
+  var diasRestam = diasMes - diaAtual + 1;
+
+  var totalGasto = 0, totalMeta = 0;
+  var cards = '';
+  for (var i = 0; i < cfg.metas.length; i++) {
+    var m = cfg.metas[i];
+    var c = metasCalcularMeta(m);
+    totalGasto += c.gasto;
+    if (m.meta) totalMeta += m.meta;
+
+    var h = '<div class="card meta-card">';
+    h += '<div class="meta-head"><div class="meta-nome">' + m.emoji + ' ' + escMeta(m.nome) + '</div>';
+    h += '<div class="meta-acoes"><button type="button" class="meta-btn" onclick="metasEditarValor(\'' + m.id + '\')">✏️ ' + (m.meta ? fmtBRL(m.meta) : 'definir meta') + '</button>';
+    h += '<button type="button" class="meta-btn" onclick="metasRemover(\'' + m.id + '\')">🗑️</button></div></div>';
+
+    if (m.meta) {
+      var pct = c.gasto / m.meta;
+      var resta = m.meta - c.gasto;
+      h += metasBarra(pct);
+      h += '<div class="meta-linha"><b>' + fmtBRL(c.gasto) + '</b> de ' + fmtBRL(m.meta) + ' · ';
+      if (resta >= 0) h += '<span style="color:' + metasCor(pct) + ';font-weight:600;">restam ' + fmtBRL(resta) + '</span>';
+      else h += '<span style="color:var(--despesa);font-weight:600;">passou ' + fmtBRL(-resta) + '</span>';
+      h += '</div>';
+      if (resta > 0 && diasRestam > 0) h += '<div class="meta-sub">≈ ' + fmtBRL(resta / diasRestam) + ' por dia até o fim do mês</div>';
+      if (diaAtual >= 5) {
+        var proj = c.gasto / diaAtual * diasMes;
+        h += '<div class="meta-sub">No ritmo atual o mês fecha em ' + fmtBRL(proj) + (proj > m.meta ? ' ⚠️' : ' ✅') + '</div>';
+      }
+    } else {
+      h += '<div class="meta-linha">Gasto no mês: <b>' + fmtBRL(c.gasto) + '</b> · defina uma meta para acompanhar</div>';
+    }
+    if (c.parcAntigas > 0) h += '<div class="meta-sub">Inclui ' + fmtBRL(c.parcAntigas) + ' em parcelas de compras anteriores</div>';
+    if (m.avisarParcelas) {
+      if (c.abertos.n > 0) h += '<div class="meta-sub">Parcelas em aberto: ' + c.abertos.n + ' compra(s), ' + fmtBRL(c.abertos.restante) + ' a pagar, terminam em ' + metasNomeMes(c.abertos.fim) + '</div>';
+      else if (METAS_STATE.abertos !== null) h += '<div class="meta-aviso">As parcelas dessa meta acabaram — hora de reduzir o valor da meta.</div>';
+    }
+    if (c.economia) {
+      var ec = c.economia;
+      h += '<div class="meta-eco">Ponto de partida: ' + fmtBRL(m.base) + '/mês';
+      if (ec.meses > 0) h += ' · economizado em ' + ec.meses + ' mês(es) fechado(s): <b style="color:' + (ec.acumulada >= 0 ? 'var(--receita)' : 'var(--despesa)') + ';">' + fmtBRL(ec.acumulada) + '</b>';
+      else h += ' · a economia acumulada aparece quando o primeiro mês fechar';
+      h += '</div>';
+    }
+    h += '</div>';
+    cards += h;
+  }
+
+  var html = '';
+  var pctTot = totalMeta > 0 ? totalGasto / totalMeta : 0;
+  html += '<div class="card"><div class="card-title">🎯 Metas de ' + metasNomeMes(mesAtual) + '</div>';
+  html += '<div class="card-sub">Só o que dá para reduzir. Casa, escola, saúde e demais fixos ficam no bloco abaixo.</div>';
+  html += metasBarra(pctTot);
+  html += '<div class="meta-linha"><b>' + fmtBRL(totalGasto) + '</b> de ' + fmtBRL(totalMeta) + ' nas metas</div></div>';
+  html += cards;
+
+  // nova meta
+  html += '<div class="card"><div class="card-title">➕ Nova meta</div><div class="card-sub">Escolha uma categoria (e subcategoria, se quiser) para acompanhar</div>';
+  html += '<select class="input select-inline" id="nmCategoria" onchange="metasOnCatChange()"><option value="">Categoria...</option>';
+  for (var k = 0; k < CATEGORIAS.length; k++) {
+    var ct = CATEGORIAS[k];
+    if (ct.aplicaEm.indexOf('despesa') === -1 || ct.orcamentavel === false) continue;
+    html += '<option value="' + ct.id + '">' + ct.emoji + ' ' + escMeta(ct.nome) + '</option>';
+  }
+  html += '</select>';
+  html += '<select class="input select-inline" id="nmSub" style="margin-top:8px;"><option value="">Todas as subcategorias</option></select>';
+  html += '<input class="input" id="nmValor" type="text" inputmode="decimal" placeholder="Meta mensal em R$ (opcional)" style="margin-top:8px;">';
+  html += '<div class="btn-row"><button class="btn btn-primary" onclick="metasNovaMeta()">Adicionar meta</button></div></div>';
+
+  // panorama
+  var recMensal = Number(cfg.receita.mensal) || 0;
+  var bonus = Number(cfg.receita.bonusAnual) || 0;
+  var recMedia = recMensal + bonus / 12;
+  var emp = Number(cfg.emprestimos.valor) || 0;
+  var fHoje = Number(cfg.fixos.hoje) || 0;
+  var fPos = Number(cfg.fixos.posMudanca) || 0;
+  var colunas = [
+    { t: 'Hoje', fixos: fHoje, emp: emp },
+    { t: 'Após mudar', fixos: fPos, emp: emp },
+    { t: 'Após quitar empréstimos', fixos: fPos, emp: 0 }
+  ];
+  html += '<div class="card"><div class="card-title">🧮 Panorama mensal</div>';
+  html += '<div class="card-sub">Receita média = salário + bônus ÷ 12. Não inclui gastos sem meta nem anuais (você decide na hora).</div>';
+  html += '<div class="scroll-x"><table class="pano"><tr><th></th>';
+  for (var a = 0; a < colunas.length; a++) html += '<th>' + colunas[a].t + '</th>';
+  html += '</tr>';
+  var linhas = [
+    ['Receita média', function (c) { return recMedia; }],
+    ['Fixos (casa, carro, escola, dízimo…)', function (c) { return -c.fixos; }],
+    ['Empréstimos' + (cfg.emprestimos.ate ? ' (até ' + metasNomeMes(cfg.emprestimos.ate) + ')' : ''), function (c) { return -c.emp; }],
+    ['Metas de redução', function (c) { return -totalMeta; }]
+  ];
+  for (var b = 0; b < linhas.length; b++) {
+    html += '<tr><td>' + linhas[b][0] + '</td>';
+    for (var d2 = 0; d2 < colunas.length; d2++) html += '<td>' + fmtBRL(linhas[b][1](colunas[d2])) + '</td>';
+    html += '</tr>';
+  }
+  html += '<tr class="pano-tot"><td>Sobra por mês</td>';
+  for (var e = 0; e < colunas.length; e++) {
+    var sobra = recMedia - colunas[e].fixos - colunas[e].emp - totalMeta;
+    html += '<td style="color:' + (sobra >= 0 ? 'var(--receita)' : 'var(--despesa)') + ';">' + fmtBRL(sobra) + '</td>';
+  }
+  html += '</tr></table></div></div>';
+
+  // premissas
+  html += '<div class="card"><div class="card-title">⚙️ Premissas</div><div class="card-sub">Valores usados no panorama. Fixos: um número só, incluindo dízimo.</div>';
+  var campos = [
+    ['pmSalario', 'Salário mensal (R$)', cfg.receita.mensal],
+    ['pmBonus', 'Bônus anual (R$)', cfg.receita.bonusAnual],
+    ['pmFixosHoje', 'Fixos hoje (R$/mês)', cfg.fixos.hoje],
+    ['pmFixosPos', 'Fixos após mudar (R$/mês)', cfg.fixos.posMudanca],
+    ['pmEmp', 'Parcelas de empréstimos (R$/mês)', cfg.emprestimos.valor]
+  ];
+  for (var f = 0; f < campos.length; f++) {
+    html += '<div class="label">' + campos[f][1] + '</div><input class="input" id="' + campos[f][0] + '" type="text" inputmode="decimal" value="' + escMeta(campos[f][2]) + '">';
+  }
+  html += '<div class="label">Empréstimos terminam em (AAAA-MM)</div><input class="input" id="pmEmpAte" type="text" value="' + escMeta(cfg.emprestimos.ate) + '">';
+  html += '<div class="btn-row"><button class="btn btn-primary" onclick="metasSalvarPremissas()">Salvar premissas</button></div></div>';
+
+  wrap.innerHTML = html;
+}
+
+function metasSalvar() {
+  var fb = window._fb;
+  var cfg = METAS_STATE.cfg;
+  var dados = { receita: cfg.receita, fixos: cfg.fixos, emprestimos: cfg.emprestimos, inicio: cfg.inicio, metas: cfg.metas, atualizadoEm: Date.now(), atualizadoPor: window._userName || null };
+  return fb.setDoc(metasRefDoc(), dados).catch(function (e) {
+    console.error(e);
+    alert('Não consegui salvar: ' + e.message);
+  });
+}
+
+function metasAcharIndice(id) {
+  var ms = METAS_STATE.cfg.metas;
+  for (var i = 0; i < ms.length; i++) if (ms[i].id === id) return i;
+  return -1;
+}
+
+function metasEditarValor(id) {
+  var idx = metasAcharIndice(id);
+  if (idx < 0) return;
+  var m = METAS_STATE.cfg.metas[idx];
+  var resp = prompt('Meta mensal de "' + m.nome + '" (R$). Deixe vazio para tirar a meta.', m.meta ? String(m.meta) : '');
+  if (resp === null) return;
+  var v = resp.replace(/^\s+|\s+$/g, '') === '' ? null : metasNumero(resp);
+  if (resp.replace(/^\s+|\s+$/g, '') !== '' && v === null) { alert('Valor inválido.'); return; }
+  m.meta = v;
+  metasSalvar().then(function () { renderMetasTab(); renderMetasStrip(); });
+}
+window.metasEditarValor = metasEditarValor;
+
+function metasRemover(id) {
+  var idx = metasAcharIndice(id);
+  if (idx < 0) return;
+  if (!confirm('Remover a meta "' + METAS_STATE.cfg.metas[idx].nome + '"? Os lançamentos não são afetados.')) return;
+  METAS_STATE.cfg.metas.splice(idx, 1);
+  metasSalvar().then(function () { renderMetasTab(); renderMetasStrip(); });
+}
+window.metasRemover = metasRemover;
+
+function metasOnCatChange() {
+  var catId = document.getElementById('nmCategoria').value;
+  var sel = document.getElementById('nmSub');
+  var html = '<option value="">Todas as subcategorias</option>';
+  var cat = getCategoriaById(catId);
+  if (cat) {
+    for (var i = 0; i < cat.subcategorias.length; i++) html += '<option value="' + escMeta(cat.subcategorias[i]) + '">' + escMeta(cat.subcategorias[i]) + '</option>';
+  }
+  sel.innerHTML = html;
+}
+window.metasOnCatChange = metasOnCatChange;
+
+function metasNovaMeta() {
+  var catId = document.getElementById('nmCategoria').value;
+  var sub = document.getElementById('nmSub').value;
+  var valRaw = document.getElementById('nmValor').value;
+  var cat = getCategoriaById(catId);
+  if (!cat) { alert('Escolha uma categoria.'); return; }
+  var v = valRaw.replace(/^\s+|\s+$/g, '') === '' ? null : metasNumero(valRaw);
+  if (valRaw.replace(/^\s+|\s+$/g, '') !== '' && v === null) { alert('Valor inválido.'); return; }
+  var filtro = { categoria: catId };
+  if (sub) filtro.sub = sub;
+  METAS_STATE.cfg.metas.push({
+    id: 'm' + Date.now(),
+    nome: sub ? cat.nome + ' · ' + sub : cat.nome,
+    emoji: cat.emoji,
+    filtros: [filtro],
+    meta: v,
+    base: null
+  });
+  metasSalvar().then(function () { renderMetasTab(); renderMetasStrip(); });
+}
+window.metasNovaMeta = metasNovaMeta;
+
+function metasSalvarPremissas() {
+  var cfg = METAS_STATE.cfg;
+  var pares = [
+    ['pmSalario', function (v) { cfg.receita.mensal = v; }],
+    ['pmBonus', function (v) { cfg.receita.bonusAnual = v; }],
+    ['pmFixosHoje', function (v) { cfg.fixos.hoje = v; }],
+    ['pmFixosPos', function (v) { cfg.fixos.posMudanca = v; }],
+    ['pmEmp', function (v) { cfg.emprestimos.valor = v; }]
+  ];
+  for (var i = 0; i < pares.length; i++) {
+    var v = metasNumero(document.getElementById(pares[i][0]).value);
+    if (v === null) { alert('Confira os valores: algum campo não é um número.'); return; }
+    pares[i][1](v);
+  }
+  cfg.emprestimos.ate = document.getElementById('pmEmpAte').value.replace(/\s/g, '');
+  metasSalvar().then(function () { renderMetasTab(); });
+}
+window.metasSalvarPremissas = metasSalvarPremissas;
+
+/* ==================================================================== */
+/* ==================== ABA RECORRENTES ================================ */
+/* ==================================================================== */
+
+var RECORRENTES_STATE = { iniciado: false };
+
+function renderRecorrentesTab() {
+  document.getElementById('recorrentesWrap').innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Carregando...</div>';
+  carregarRecorrentes();
+}
+
+function carregarRecorrentes() {
+  var fb = window._fb;
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
+
+  var qParcelados = fb.query(col, fb.where('parcelado', '==', true));
+
+  var hoje = todayISO();
+  var de3meses = addMeses(primeiroDiaMesISO(hoje), -2);
+  var qFixo = fb.query(col, fb.where('grupo', '==', 'fixo'), fb.where('data', '>=', de3meses), fb.orderBy('data', 'desc'));
+
+  Promise.all([fb.getDocs(qParcelados), fb.getDocs(qFixo)]).then(function (resultados) {
+    var parcelados = [];
+    resultados[0].forEach(function (d) { var t = d.data(); t.id = d.id; parcelados.push(t); });
+    var fixos = [];
+    resultados[1].forEach(function (d) { var t = d.data(); t.id = d.id; fixos.push(t); });
+    renderRecorrentesConteudo(parcelados, fixos);
+  }).catch(function (e) {
+    console.error(e);
+    document.getElementById('recorrentesWrap').innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>Erro ao carregar: ' + e.message + '</div>';
+  });
+}
+
+/* ---------- parcelamentos em aberto ---------- */
+function chaveParcelamento(t) {
+  if (t.grupoParcelamentoId) return 'gid:' + t.grupoParcelamentoId;
+  return 'sig:' + t.conta + '|' + assinaturaDescricao(t.descricao) + '|' + t.totalParcelas + '|' + Math.round(t.valor);
+}
+
+function calcularParcelamentosAbertos(itens) {
+  var grupos = {};
+  itens.forEach(function (t) {
+    if (!t.parcelado || !t.totalParcelas || t.totalParcelas <= 1 || !t.parcelaAtual) return;
+    var chave = chaveParcelamento(t);
+    var g = grupos[chave];
+    if (!g) { g = grupos[chave] = { descricao: t.descricao, conta: t.conta, categoria: t.categoria, subcategoria: t.subcategoria || null, quem: t.quem, totalParcelas: t.totalParcelas, valorParcela: t.valor, maxParcela: 0, ultimaData: null }; }
+    if (t.parcelaAtual >= g.maxParcela) {
+      g.maxParcela = t.parcelaAtual;
+      g.ultimaData = t.data;
+      g.valorParcela = t.valor;
+      g.descricao = t.descricao;
+      g.categoria = t.categoria;
+      g.subcategoria = t.subcategoria || null;
+      g.quem = t.quem;
+    }
+  });
+  var resultado = [];
+  for (var k in grupos) {
+    var g = grupos[k];
+    var falta = g.totalParcelas - g.maxParcela;
+    if (falta <= 0) continue;
+    resultado.push({
+      descricao: g.descricao, conta: g.conta, categoria: g.categoria, subcategoria: g.subcategoria, quem: g.quem,
+      totalParcelas: g.totalParcelas, parcelaAtual: g.maxParcela, valorParcela: g.valorParcela,
+      falta: falta, restante: Math.round(g.valorParcela * falta * 100) / 100, ultimaData: g.ultimaData
+    });
+  }
+  resultado.sort(function (a, b) { return b.restante - a.restante; });
+  return resultado;
+}
+
+function projetarProximosMeses(gruposAbertos) {
+  var porMes = {};
+  gruposAbertos.forEach(function (g) {
+    for (var i = 1; i <= g.falta; i++) {
+      var mesFuturo = addMeses(g.ultimaData, i).substring(0, 7);
+      porMes[mesFuturo] = (porMes[mesFuturo] || 0) + g.valorParcela;
+    }
+  });
+  return porMes;
+}
+
+/* ---------- render ---------- */
+function renderRecorrentesConteudo(parcelados, fixos) {
+  var abertos = calcularParcelamentosAbertos(parcelados);
+  var porMes = projetarProximosMeses(abertos);
+  var mesesOrdenados = Object.keys(porMes).sort().slice(0, 12);
+  var totalRestante = abertos.reduce(function (s, g) { return s + g.restante; }, 0);
+
+  var html = '';
+
+  html += '<div class="card">';
+  html += '<div class="card-title">🔮 Parcelamentos em aberto</div>';
+  html += '<div class="card-sub">Projetado a partir da última parcela vista — inclui tanto parcelamentos lançados aqui quanto os que vieram de fatura importada aos poucos</div>';
+  html += '<div class="resumo-import">';
+  html += '<div class="resumo-chip"><b>' + abertos.length + '</b>compras parceladas em aberto</div>';
+  html += '<div class="resumo-chip"><b>' + fmtBRL(totalRestante) + '</b>saldo total a vencer</div>';
+  html += '</div>';
+
+  if (mesesOrdenados.length > 0) {
+    html += '<div style="position:relative;height:200px;margin-top:10px;"><canvas id="chartParcelasFuturas"></canvas></div>';
+  }
+
+  if (abertos.length === 0) {
+    html += '<div class="empty-state"><div class="ic">✅</div>Nenhum parcelamento em aberto no momento.</div>';
+  } else {
+    html += '<div style="overflow-x:auto;margin-top:10px;"><table class="preview-table" style="font-size:11.5px;">';
+    html += '<thead><tr><th>Descrição</th><th>Conta</th><th>Parcela</th><th>Faltam</th><th>Valor/parc.</th><th>Restante</th></tr></thead><tbody>';
+    for (var i = 0; i < abertos.length; i++) {
+      var g = abertos[i];
+      var conta = getContaById(g.conta);
+      html += '<tr><td>' + (g.descricao || '') + '</td><td>' + (conta ? conta.nome : '') + '</td>';
+      html += '<td>' + g.parcelaAtual + '/' + g.totalParcelas + '</td><td>' + g.falta + '</td>';
+      html += '<td style="color:var(--despesa);">' + fmtBRL(g.valorParcela) + '</td><td style="color:var(--despesa);font-weight:700;">' + fmtBRL(g.restante) + '</td></tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+  html += '</div>'; // card
+
+  html += '<div class="card">';
+  html += '<div class="card-title">📌 Contas fixas recentes</div>';
+  html += '<div class="card-sub">Últimos 3 meses, agrupado por categoria — referência do que costuma vir todo mês</div>';
+  html += renderContasFixasResumo(fixos);
+  html += '</div>';
+
+  document.getElementById('recorrentesWrap').innerHTML = html;
+
+  if (mesesOrdenados.length > 0) desenharChartParcelasFuturas(mesesOrdenados, porMes);
+}
+
+function renderContasFixasResumo(fixos) {
+  var porCategoria = {};
+  fixos.forEach(function (t) {
+    var chave = t.categoria + '|' + (t.subcategoria || '');
+    if (!porCategoria[chave] || porCategoria[chave].data < t.data) {
+      porCategoria[chave] = { categoria: t.categoria, subcategoria: t.subcategoria, valor: t.valor, data: t.data };
+    }
+  });
+  var linhas = Object.keys(porCategoria).map(function (k) { return porCategoria[k]; });
+  if (linhas.length === 0) return '<div class="empty-state"><div class="ic">📭</div>Nenhuma conta fixa lançada nos últimos 3 meses.</div>';
+  linhas.sort(function (a, b) { return b.valor - a.valor; });
+
+  var html = '<div style="overflow-x:auto;"><table class="preview-table" style="font-size:11.5px;">';
+  html += '<thead><tr><th>Categoria</th><th>Subcategoria</th><th>Último valor</th><th>Data</th></tr></thead><tbody>';
+  for (var i = 0; i < linhas.length; i++) {
+    var l = linhas[i];
+    var cat = getCategoriaById(l.categoria);
+    html += '<tr><td>' + (cat ? cat.emoji + ' ' + cat.nome : l.categoria) + '</td><td>' + (l.subcategoria || '—') + '</td>';
+    html += '<td style="color:var(--despesa);font-weight:700;">' + fmtBRL(l.valor) + '</td><td>' + isoParaBR(l.data) + '</td></tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function desenharChartParcelasFuturas(meses, porMes) {
+  var ctx = document.getElementById('chartParcelasFuturas');
+  if (!ctx || typeof Chart === 'undefined') return;
+  var labels = meses.map(mesLabelCurto);
+  var valores = meses.map(function (m) { return Math.round((porMes[m] || 0) * 100) / 100; });
+
+  if (window._chartParcelasFuturas) window._chartParcelasFuturas.destroy();
+  window._chartParcelasFuturas = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labels, datasets: [{ label: 'Comprometido em parcelas', data: valores, backgroundColor: '#E76F28' }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
 
 
 
