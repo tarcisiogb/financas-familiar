@@ -421,6 +421,19 @@ body { background:var(--bg); }
 .sel-barra,.dup-barra{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--card);border-top:1px solid var(--border);padding:10px 14px calc(10px + env(safe-area-inset-bottom));box-shadow:0 -4px 14px rgba(0,0,0,.12);}
 #sec-lancamentos:has(#selBarra.sel-barra){padding-bottom:190px;}
 #dupWrap:has(.dup-barra){padding-bottom:170px;}
+.onde-cat{padding:10px 0;border-top:1px solid var(--border);cursor:pointer;}
+.onde-cat:first-of-type{border-top:0;}
+.onde-linha{display:flex;justify-content:space-between;gap:10px;font-size:14px;font-weight:700;}
+.onde-barra{height:8px;background:var(--primary-x);border-radius:6px;margin:6px 0 4px;overflow:hidden;}
+.onde-barra i{display:block;height:100%;background:var(--primary);border-radius:6px;}
+.onde-sub{font-size:11.5px;color:var(--muted);}
+.onde-det{margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:10px;font-size:12.5px;}
+.onde-linha2{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0;}
+.onde-clicavel{cursor:pointer;border-top:1px solid var(--border);padding:8px 0;}
+.onde-sug{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border);}
+.onde-sug-ic{font-size:20px;line-height:1.2;}
+.onde-sug-tit{font-size:13.5px;font-weight:700;}
+.onde-out{padding:8px 0;border-top:1px solid var(--border);}
 </style>
 </head>
 <body>
@@ -454,6 +467,7 @@ body { background:var(--bg); }
 
   <div class="tabs" id="tabsNav">
     <div class="tab on" data-tab="lancar" onclick="mudarTab('lancar')">💳 Lançar</div>
+    <div class="tab" data-tab="onde" onclick="mudarTab('onde')">🔎 Onde gastei</div>
     <div class="tab" data-tab="importar" onclick="mudarTab('importar')">🏦 Importar</div>
     <div class="tab" data-tab="lancamentos" onclick="mudarTab('lancamentos')">📋 Lançamentos</div>
     <div class="tab" data-tab="orcamentos" onclick="mudarTab('orcamentos')">🎯 Metas</div>
@@ -479,6 +493,11 @@ body { background:var(--bg); }
       </div>
       <div id="metasStrip"></div>
     </div>
+  </div>
+
+  <!-- ===== ABA: ONDE GASTEI ===== -->
+  <div id="sec-onde" class="sec">
+    <div id="ondeWrap"></div>
   </div>
 
   <!-- ===== ABA: IMPORTAR ===== -->
@@ -706,7 +725,8 @@ function isoParaDiaSemanaBR(iso) {
 }
 
 function addMeses(iso, n) {
-  var partes = iso.split('-');
+  if (!iso) iso = todayISO();
+  var partes = String(iso).split('-');
   var ano = parseInt(partes[0], 10);
   var mes = parseInt(partes[1], 10) - 1;
   var dia = parseInt(partes[2], 10);
@@ -793,11 +813,13 @@ function alternarEventosOcultos() {
   atualizarStatsMes();
   if (document.getElementById('fluxoFiltrosRow') && document.getElementById('sec-fluxo').classList.contains('on')) { renderFluxoFiltrosChips(); carregarFluxo(); }
   if (RELAT_STATE.itens !== null) renderRelatoriosConteudo();
+  if (typeof ONDE_STATE !== 'undefined' && ONDE_STATE.itens !== null) ondeRender();
 }
 window.alternarEventosOcultos = alternarEventosOcultos;
 function invalidarCachesAgregados() {
   FLUXO_STATE.iniciado = false;
   RELAT_STATE.itens = null;
+  if (typeof ONDE_STATE !== 'undefined') ONDE_STATE.itens = null;
 }
 
 function novoFormState() {
@@ -869,6 +891,9 @@ function mudarTab(nome) {
     FLUXO_STATE.iniciado = true;
     renderFluxoTab();
   }
+  if (nome === 'onde') {
+    renderOndeTab();
+  }
   if (nome === 'orcamentos') {
     METAS_STATE.tabIniciada = true;
     renderMetasTab();
@@ -882,7 +907,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-10-18.11';
+var APP_VERSAO = '2026-11-14.1';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -2361,6 +2386,7 @@ var IMPORT_STATE = {
   itensRevisao: [],
   arquivoNome: null,
   pagamentosIgnorados: 0,
+  faturaInfo: null,
   historicoTransacoes: null,
   historicoResumo: null
 };
@@ -2385,7 +2411,7 @@ function renderImportarTab() {
     html += '<div class="label">Conta</div>';
     html += '<div class="pill-grid" id="pills-conta-extrato"></div>';
   } else if (IMPORT_STATE.modo === 'fatura') {
-    html += '<div class="card-sub">Pode selecionar várias faturas de uma vez, desde que sejam do mesmo cartão escolhido abaixo</div>';
+    html += '<div class="card-sub">Aceita a fatura em PDF (baixada no app do Itaú) ou em XLSX. Pode selecionar várias de uma vez, desde que sejam do mesmo cartão escolhido abaixo</div>';
     html += '<div class="label">Cartão</div>';
     html += '<div class="pill-grid" id="pills-conta-fatura"></div>';
     html += '<div class="label">Quem é "Titular" e quem é "Adicional" nesta fatura?</div>';
@@ -2405,7 +2431,7 @@ function renderImportarTab() {
   html += '<label class="upload-box" id="uploadBox">';
   html += '<div class="ic">📤</div>';
   html += '<div id="uploadTexto">Toque para escolher ' + (IMPORT_STATE.modo === 'historico' ? 'o arquivo' : 'um ou mais arquivos') + '</div>';
-  html += '<input type="file" id="inputArquivo" ' + (IMPORT_STATE.modo === 'historico' ? '' : 'multiple ') + 'accept="' + (IMPORT_STATE.modo === 'print' ? 'image/*' : IMPORT_STATE.modo === 'fatura' ? '.xlsx' : IMPORT_STATE.modo === 'historico' ? '.xlsx' : '.ofx,.csv,.pdf,.xlsx,.xls') + '" onchange="onArquivoSelecionado(event)">';
+  html += '<input type="file" id="inputArquivo" ' + (IMPORT_STATE.modo === 'historico' ? '' : 'multiple ') + 'accept="' + (IMPORT_STATE.modo === 'print' ? 'image/*' : IMPORT_STATE.modo === 'fatura' ? '.xlsx,.pdf' : IMPORT_STATE.modo === 'historico' ? '.xlsx' : '.ofx,.csv,.pdf,.xlsx,.xls') + '" onchange="onArquivoSelecionado(event)">';
   html += '</label>';
 
   html += '<div id="statusProcessamento"></div>';
@@ -2772,28 +2798,304 @@ function parseLinhaPDFItau(linha) {
 
 function parsePDF(arrayBuffer) {
   var pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
-  if (!pdfjsLib) return Promise.reject(new Error('Biblioteca de leitura de PDF não carregou. Tente OFX ou CSV.'));
+  if (!pdfjsLib) return Promise.reject(new Error('Biblioteca de leitura de PDF não carregou. Tente OFX, CSV ou XLSX.'));
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.worker.min.js';
   return pdfjsLib.getDocument({ data: arrayBuffer }).promise.then(function (pdf) {
     var promessasPaginas = [];
     for (var p = 1; p <= pdf.numPages; p++) {
       promessasPaginas.push(pdf.getPage(p).then(function (page) {
         return page.getTextContent().then(function (textContent) {
-          return extrairLinhasDoPDF(textContent);
+          return textContent.items.map(function (it) { return { str: it.str, x: it.transform[4], y: it.transform[5], w: it.width }; });
         });
       }));
     }
-    return Promise.all(promessasPaginas).then(function (paginas) {
-      var transacoes = [];
-      paginas.forEach(function (linhas) {
-        linhas.forEach(function (linha) {
-          var t = parseLinhaPDFItau(linha);
-          if (t) transacoes.push(t);
-        });
+    return Promise.all(promessasPaginas);
+  }).then(function (paginas) {
+    var textoTodo = paginas.map(function (itens) { return itens.map(function (i) { return i.str; }).join(' '); }).join(' ');
+    var ehFatura = /compras e saques/i.test(textoTodo) && /fatura/i.test(textoTodo);
+    var modo = IMPORT_STATE.modo;
+    if (ehFatura) {
+      if (modo !== 'fatura') throw new Error('Esse PDF é uma fatura de cartão. Toque em "💳 Fatura", escolha o cartão e envie de novo.');
+      var rf = faturaPdfParsePaginas(paginas);
+      rf.itens.forEach(function (it) { it.quemSugerido = IMPORT_STATE.titularMap[it.quemSugerido] || null; });
+      IMPORT_STATE.faturaInfo = rf.info;
+      return rf.itens;
+    }
+    if (modo === 'fatura') throw new Error('Esse PDF não parece uma fatura de cartão Itaú. Para extrato da conta, use o modo "🏦 Extrato".');
+    var re = extratoPdfParsePaginas(paginas);
+    if (re.ehExtrato) return re.itens;
+    // layout antigo (extrato com data e valor na mesma linha)
+    var transacoes = [];
+    paginas.forEach(function (itens) {
+      var linhas = extrairLinhasDoPDF({ items: itens.map(function (i) { return { str: i.str, transform: [1, 0, 0, 1, i.x, i.y] }; }) });
+      linhas.forEach(function (linha) {
+        var t = parseLinhaPDFItau(linha);
+        if (t && t.descricao) transacoes.push(t);
       });
-      return transacoes;
+    });
+    return transacoes;
+  });
+}
+
+/* ---------- parser PDF de FATURA Itaú (cartão) ---------- */
+var FATURA_CAT_MAP = {
+  restaurante: 'alimentacao', supermercado: 'supermercado', supermarket: 'supermercado',
+  vestuario: 'vestuario', lazer: 'lazer', saude: 'beleza-saude', health: 'beleza-saude',
+  transporte: 'transporte', educacao: 'escola', eletronicos: 'presentes'
+};
+
+function faturaSemAcento(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+function faturaNumero(s) {
+  var n = parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+function faturaP2(n) { return (n < 10 ? '0' : '') + n; }
+function faturaISO(y, m, d) { return y + '-' + faturaP2(m) + '-' + faturaP2(d); }
+
+// monta linhas (por coluna) a partir dos itens de texto de uma página
+function faturaLinhasDaPagina(items) {
+  var lista = [];
+  items.forEach(function (it) {
+    if (!it.str || !it.str.trim()) return;
+    lista.push({ s: it.str, x: it.x, y: it.y, w: it.w || 0 });
+  });
+  lista.sort(function (a, b) { return b.y - a.y || a.x - b.x; });
+  // agrupa por y (tolerância 2)
+  var grupos = [];
+  lista.forEach(function (it) {
+    var g = grupos.length ? grupos[grupos.length - 1] : null;
+    if (g && Math.abs(g.y - it.y) <= 2) g.itens.push(it);
+    else grupos.push({ y: it.y, itens: [it] });
+  });
+  var colunas = [[], []];
+  grupos.forEach(function (g) {
+    g.itens.sort(function (a, b) { return a.x - b.x; });
+    [0, 1].forEach(function (c) {
+      var its = g.itens.filter(function (i) { return c === 0 ? i.x < 325 : i.x >= 325; });
+      if (!its.length) return;
+      var segs = [], atual = null, fim = 0;
+      its.forEach(function (i) {
+        var gap = i.x - fim;
+        if (!atual || gap > 14) { atual = { x: i.x, t: i.s }; segs.push(atual); }
+        else atual.t += (gap > 1.0 ? ' ' : '') + i.s;
+        fim = i.x + i.w;
+      });
+      colunas[c].push({ y: g.y, segs: segs, texto: segs.map(function (s) { return s.t; }).join(' ').replace(/\s+/g, ' ').trim() });
     });
   });
+  return colunas;
+}
+
+function faturaDataNoCiclo(dd, mm, n, emissao, ehParcela) {
+  // emissao: {y,m,d}. Retorna ISO.
+  var E = new Date(emissao.y, emissao.m - 1, emissao.d);
+  var mesAlvo = ehParcela ? ((mm - 1) + (n - 1)) % 12 + 1 : mm;
+  var cands = [];
+  for (var dy = 0; dy <= 2; dy++) {
+    var y = emissao.y - dy;
+    var diaMax = new Date(y, mesAlvo, 0).getDate();
+    cands.push(new Date(y, mesAlvo - 1, Math.min(dd, diaMax)));
+  }
+  var escolhido = null;
+  if (ehParcela) {
+    var inf = new Date(emissao.y, emissao.m - 2, emissao.d);
+    for (var i = 0; i < cands.length; i++) { if (cands[i] > inf && cands[i] <= E) { escolhido = cands[i]; break; } }
+  }
+  if (!escolhido) { for (var j = 0; j < cands.length; j++) { if (cands[j] <= E) { escolhido = cands[j]; break; } } }
+  if (!escolhido) escolhido = cands[0];
+  return faturaISO(escolhido.getFullYear(), escolhido.getMonth() + 1, escolhido.getDate());
+}
+
+// paginas: [ [ {str,x,y,w}, ... ], ... ]
+function faturaPdfParsePaginas(paginas) {
+  var RE_VALOR = /(-?\d{1,3}(?:\.\d{3})*,\d{2})$/;
+  var info = { emissao: null, vencimento: null, totalLancamentos: null, titular: null, soma: 0 };
+  var stream = [];
+  paginas.forEach(function (items) {
+    var cols = faturaLinhasDaPagina(items);
+    cols[0].forEach(function (l) { stream.push(l); });
+    cols[1].forEach(function (l) { stream.push(l); });
+  });
+  // metadados da capa
+  stream.forEach(function (l) {
+    var m;
+    if (!info.emissao && (m = l.texto.match(/Emiss[aã]o:\s*(\d{2})\/(\d{2})\/(\d{4})/))) info.emissao = { d: +m[1], m: +m[2], y: +m[3] };
+    if (!info.vencimento && (m = l.texto.match(/Vencimento:\s*(\d{2})\/(\d{2})\/(\d{4})/))) info.vencimento = faturaISO(+m[3], +m[2], +m[1]);
+    if (!info.titular && (m = l.texto.match(/^Titular\s+([A-Z][A-Z ]{5,})$/))) info.titular = m[1].trim();
+  });
+  if (!info.emissao) {
+    var hoje = new Date();
+    info.emissao = { d: hoje.getDate(), m: hoje.getMonth() + 1, y: hoje.getFullYear() };
+  }
+
+  var sec = 'ign', fim = false, quem = 'Titular', pend = null, ultimaInter = null;
+  var itens = [];
+  stream.forEach(function (l) {
+    var t = l.texto, tn = faturaSemAcento(t).toLowerCase();
+    if (fim) return;
+    if (tn.indexOf('compras parceladas - proximas faturas') === 0) { fim = true; return; }
+    if (tn.indexOf('pagamentos efetuados') === 0) { sec = 'ign'; pend = null; return; }
+    if (tn.indexOf('lancamentos: compras e saques') === 0) { sec = 'compras'; pend = null; return; }
+    if (tn.indexOf('lancamentos internacionais') === 0) { sec = 'inter'; pend = null; return; }
+    var mTot = tn.match(/total dos lancamentos atuais\s+([\d.]+,\d{2})/);
+    if (mTot) { info.totalLancamentos = faturaNumero(mTot[1]); sec = 'ign'; return; }
+    if (tn.indexOf('lancamentos no cartao') === 0) { sec = 'ign'; pend = null; return; }
+    var mIof = tn.match(/^repasse de iof em r\$\s+([\d.]+,\d{2})/);
+    if (mIof && ultimaInter) {
+      var vIof = faturaNumero(mIof[1]);
+      if (vIof > 0) itens.push({ data: ultimaInter, valor: vIof, tipo: 'despesa', descricao: 'IOF COMPRA INTERNACIONAL', parcelaAtual: null, totalParcelas: null, quemSugerido: null, categoriaSugerida: null, _quem: quem, _raw: null });
+      return;
+    }
+    // linha de categoria logo abaixo do lançamento (vem antes do teste de nome: "SUPERMARKET SAO PAULO" parece um nome)
+    if (pend && !/^\d{2}\/\d{2}\s/.test(t) && (sec === 'compras' || sec === 'inter')) {
+      if (!pend.categoriaSugerida && !/^(DATA|VALOR)/.test(t)) {
+        var w0 = faturaSemAcento(t.split(' ')[0]).toLowerCase();
+        if (FATURA_CAT_MAP[w0]) pend.categoriaSugerida = FATURA_CAT_MAP[w0];
+      }
+      pend = null;
+      return;
+    }
+    // cabeçalho de pessoa (nome em maiúsculas)
+    if (/^[A-Z][A-Z]+(?: [A-Z][A-Z.']*){1,5}$/.test(t) && t.length >= 8 && t.indexOf('$') === -1 && !/^(DATA|VALOR|TOTAL)/.test(t)) {
+      var ehTit = info.titular && (info.titular.indexOf(t) === 0 || t.indexOf(info.titular) === 0);
+      if (info.titular) quem = ehTit ? 'Titular' : 'Adicional';
+      if (sec === 'ign') sec = 'compras';
+      pend = null;
+      return;
+    }
+    if (sec !== 'compras' && sec !== 'inter') return;
+    var m = t.match(/^(\d{2})\/(\d{2})\s+(.+)$/);
+    if (m) {
+      var dd = +m[1], mm = +m[2], resto = m[3], valor = null;
+      // remove valores ao final (pode haver US$ e R$): vale o último
+      var guard = 0, mv;
+      while ((mv = resto.match(/\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})$/)) && guard++ < 3) {
+        valor = faturaNumero(mv[1]);
+        resto = resto.substring(0, resto.length - mv[0].length);
+      }
+      if (valor === null || mm < 1 || mm > 12) { pend = null; return; }
+      var desc = resto.trim().replace(/\s?(SAO PAULOBRA|SAO PAULO|SO PAULOBRA|SO PAULO|SAO PAUL|SAO PA|SAO P)$/, '').trim(), parcN = null, parcT = null;
+      var mp = desc.match(/\s(\d{2})\/(\d{2})$/);
+      if (mp && +mp[1] >= 1 && +mp[1] <= +mp[2] && +mp[2] <= 99 && valor > 0) {
+        parcN = +mp[1]; parcT = +mp[2];
+        desc = desc.substring(0, desc.length - mp[0].length).trim();
+      }
+      var dataISO = faturaDataNoCiclo(dd, mm, parcN || 1, info.emissao, parcN !== null);
+      if (valor < 0) {
+        // estorno/crédito: se a data original é anterior ao ciclo desta fatura, vale a data de emissão
+        var infISO = faturaISO(info.emissao.m === 1 ? info.emissao.y - 1 : info.emissao.y, info.emissao.m === 1 ? 12 : info.emissao.m - 1, info.emissao.d);
+        if (dataISO <= infISO) dataISO = faturaISO(info.emissao.y, info.emissao.m, info.emissao.d);
+      }
+      var it = {
+        data: dataISO, valor: Math.abs(valor), tipo: valor > 0 ? 'despesa' : 'receita', descricao: desc,
+        fitid: null, parcelaAtual: parcN, totalParcelas: parcT, quemSugerido: null, categoriaSugerida: null,
+        _quem: quem, _raw: faturaP2(dd) + '/' + faturaP2(mm)
+      };
+      itens.push(it);
+      pend = it;
+      if (sec === 'inter') ultimaInter = dataISO;
+      return;
+    }
+  });
+
+  // anula pares compra + cancelamento (mesma data, mesmo valor)
+  var anulados = 0;
+  for (var i = 0; i < itens.length; i++) {
+    var neg = itens[i];
+    if (neg.tipo !== 'receita' || neg._pareado || !/^CANC/i.test(neg.descricao)) continue;
+    for (var j = 0; j < itens.length; j++) {
+      var pos = itens[j];
+      if (pos.tipo !== 'despesa' || pos._pareado || pos._raw !== neg._raw) continue;
+      if (Math.round(pos.valor * 100) !== Math.round(neg.valor * 100)) continue;
+      pos._pareado = true; neg._pareado = true; anulados++;
+      break;
+    }
+  }
+  var finais = itens.filter(function (x) { return !x._pareado; });
+  var soma = 0;
+  itens.forEach(function (x) { soma += x.tipo === 'despesa' ? x.valor : -x.valor; });
+  info.soma = Math.round(soma * 100) / 100;
+  info.anulados = anulados;
+  finais.forEach(function (x) { x.quemSugerido = x._quem; delete x._quem; delete x._raw; delete x._pareado; });
+  return { itens: finais, info: info };
+}
+
+/* ---------- parser PDF de EXTRATO Itaú (app/internet banking, colunas Data | Lançamentos | Descrição | Valor | Saldo) ---------- */
+function extratoPdfParsePaginas(paginas) {
+  var tokens = []; // em ordem de leitura
+  paginas.forEach(function (items, pi) {
+    var lista = [];
+    items.forEach(function (it) { if (it.str && it.str.trim()) lista.push({ s: it.str, x: it.x, e: it.x + (it.w || 0), y: it.y, p: pi }); });
+    lista.sort(function (a, b) { return b.y - a.y || a.x - b.x; });
+    // linhas por y
+    var linhas = [];
+    lista.forEach(function (it) {
+      var l = linhas.length ? linhas[linhas.length - 1] : null;
+      if (l && Math.abs(l.y - it.y) <= 2) l.itens.push(it); else linhas.push({ y: it.y, p: pi, itens: [it] });
+    });
+    linhas.forEach(function (l) { l.itens.sort(function (a, b) { return a.x - b.x; }); tokens.push(l); });
+  });
+
+  var RE_DATA = /^\d{2}\/\d{2}\/\d{4}$/;
+  var RE_VALOR = /^-?\d{1,3}(?:\.\d{3})*,\d{2}$/;
+  function juntar(its) {
+    var t = '', fim = null;
+    its.forEach(function (i) { t += (fim !== null && i.x - fim > 1.0 ? ' ' : '') + i.s; fim = i.e; });
+    return t.replace(/\s+/g, ' ').trim();
+  }
+
+  var sec = 'ign', rows = [], atual = null, achouExtrato = false;
+  tokens.forEach(function (l) {
+    var texto = juntar(l.itens);
+    var norm = texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    if (norm.indexOf('extrato conta corrente') === 0) achouExtrato = true;
+    var primeiro = l.itens[0];
+    if (primeiro.x < 60 && l.itens.length === 1 || (primeiro.x < 60 && !RE_DATA.test(primeiro.s) && l.itens.length <= 2 && !/^data$/i.test(primeiro.s))) {
+      if (norm === 'lancamentos futuros' || norm === 'saidas futuras' || norm === 'entradas futuras') { sec = 'ign'; atual = null; return; }
+      if (norm === 'lancamentos') { sec = 'ok'; atual = null; return; }
+    }
+    if (sec !== 'ok') return;
+    if (primeiro.x < 60 && /^data$/i.test(primeiro.s)) { return; } // cabeçalho repetido
+    if (primeiro.x < 60 && RE_DATA.test(primeiro.s)) {
+      atual = { data: primeiro.s, tipo: [], desc: [], valor: null, saldoApenas: false };
+      rows.push(atual);
+      l.itens.slice(1).forEach(function (i) { atribuir(atual, i); });
+      return;
+    }
+    if (!atual) return;
+    if (/^(saldo|total|pagina|emitido)/.test(norm)) return;
+    l.itens.forEach(function (i) { atribuir(atual, i); });
+  });
+  function atribuir(row, i) {
+    if (i.x >= 95 && i.x < 250) row.tipoItens = (row.tipoItens || []).concat([i]);
+    else if (i.x >= 250 && i.e <= 415) row.descItens = (row.descItens || []).concat([i]);
+    else if (RE_VALOR.test(i.s.trim()) && i.e > 410) {
+      if (i.e <= 480 && row.valor === null) row.valor = i.s.trim();
+      else if (i.e > 480) row.saldoApenas = row.valor === null ? true : row.saldoApenas;
+    }
+  }
+  var out = [];
+  rows.forEach(function (r) {
+    if (r.valor === null) return;
+    function colunaTexto(its) {
+      if (!its || !its.length) return '';
+      // linhas da coluna (por y) unidas por espaço
+      var ordenado = its.slice().sort(function (a, b) { return b.y - a.y || a.x - b.x; });
+      var linhas = [], l = null;
+      ordenado.forEach(function (i) { if (l && Math.abs(l.y - i.y) <= 2) l.its.push(i); else { l = { y: i.y, its: [i] }; linhas.push(l); } });
+      return linhas.map(function (ln) { return juntar(ln.its); }).join(' ');
+    }
+    var tipo = colunaTexto(r.tipoItens), desc = colunaTexto(r.descItens);
+    var descricao = (tipo + ' ' + desc).trim();
+    if (!descricao) return;
+    var v = parseFloat(r.valor.replace(/\./g, '').replace(',', '.'));
+    if (isNaN(v) || v === 0) return;
+    var p = r.data.split('/');
+    out.push({ data: p[2] + '-' + p[1] + '-' + p[0], valor: Math.abs(v), tipo: v < 0 ? 'despesa' : 'receita', descricao: descricao, fitid: null });
+  });
+  return { itens: out, ehExtrato: achouExtrato };
 }
 
 /* ---------- parser fatura XLSX ---------- */
@@ -2961,6 +3263,7 @@ function onArquivoSelecionado(evt) {
 
   IMPORT_STATE.arquivoNome = files.length === 1 ? files[0].name : files.length + ' arquivos (' + files.map(function (f) { return f.name; }).join(', ') + ')';
   IMPORT_STATE.pagamentosIgnorados = 0;
+  IMPORT_STATE.faturaInfo = null;
   document.getElementById('uploadTexto').textContent = files.length === 1 ? '📄 ' + files[0].name : '📄 ' + files.length + ' arquivos selecionados';
   document.getElementById('statusProcessamento').innerHTML = '<div class="empty-state" style="padding:16px;"><div class="ic">⏳</div>Processando ' + (files.length > 1 ? files.length + ' arquivos...' : '...') + '</div>';
 
@@ -3227,7 +3530,7 @@ function prosseguirComItens(itensBrutos, contaId) {
         conta: contaId,
         quem: imp.quemSugerido || auto.quem || (r.candidato ? r.candidato.quem : null) || null,
         grupo: auto.grupo || (r.candidato ? r.candidato.grupo : null) || 'pontual',
-        categoria: auto.categoria || (r.candidato ? r.candidato.categoria : null) || 'outros',
+        categoria: auto.categoria || imp.categoriaSugerida || (r.candidato ? r.candidato.categoria : null) || 'outros',
         subcategoria: auto.subcategoria || (r.candidato ? r.candidato.subcategoria : null) || null,
         fonte: imp.fonte || null,
         evento: null,
@@ -3268,6 +3571,11 @@ function renderRevisaoImportacao() {
   if (nProv > 0) html += '<div class="resumo-chip"><b>' + nProv + '</b>prováveis duplicados (desmarcados)</div>';
   if (jaImportados > 0) html += '<div class="resumo-chip"><b>' + jaImportados + '</b>já existem — não serão duplicados</div>';
   if (IMPORT_STATE.pagamentosIgnorados > 0) html += '<div class="resumo-chip"><b>' + IMPORT_STATE.pagamentosIgnorados + '</b>pagtos de fatura ignorados</div>';
+  var fi = IMPORT_STATE.faturaInfo;
+  if (fi && fi.totalLancamentos !== null) {
+    var okFat = Math.abs(fi.soma - fi.totalLancamentos) < 0.05;
+    html += '<div class="resumo-chip"><b style="color:var(' + (okFat ? '--receita' : '--despesa') + ');">' + (okFat ? '✓ confere' : '⚠ difere') + '</b>soma ' + fmtBRL(fi.soma) + ' · fatura ' + fmtBRL(fi.totalLancamentos) + (fi.anulados ? ' · ' + fi.anulados + ' compras canceladas anuladas' : '') + '</div>';
+  }
   html += '</div>';
 
   if (visiveis.length === 0) {
@@ -5719,6 +6027,424 @@ function dupLegitimosDesmarcados() {
 window.dupLegitimosDesmarcados = dupLegitimosDesmarcados;
 
 /* ==================================================================== */
+/* ==================== ABA: ONDE GASTEI ================================ */
+/* ==================================================================== */
+
+var ONDE_STATE = { itens: null, carregando: false, mes: null, abertas: {}, soVariavel: false, outrosSel: {} };
+
+function ondeEhVariavel(t) { return t.grupo !== 'fixo' && t.grupo !== 'parcelado'; }
+
+function renderOndeTab() {
+  var wrap = document.getElementById('ondeWrap');
+  if (!wrap) return;
+  if (ONDE_STATE.itens === null) wrap.innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Carregando...</div>';
+  else ondeRender();
+  carregarOnde();
+}
+
+function carregarOnde() {
+  var fb = window._fb;
+  if (!fb || ONDE_STATE.carregando) return;
+  ONDE_STATE.carregando = true;
+  var hoje = todayISO();
+  var ini = addMeses(primeiroDiaMesISO(hoje), -5);
+  var col = fb.collection(fb.db, 'familias', FAMILIA_ID, 'transacoes');
+  var q = fb.query(col, fb.where('data', '>=', ini), fb.where('data', '<=', ultimoDiaMesISO(hoje)));
+  var pRegras = REGRAS_CACHE ? Promise.resolve(REGRAS_CACHE) : carregarRegrasCache();
+  Promise.all([fb.getDocs(q), pRegras]).then(function (res) {
+    var lista = [];
+    res[0].forEach(function (d) {
+      var t = d.data(); t.id = d.id;
+      var cat = getCategoriaById(t.categoria);
+      if (t.tipo !== 'despesa') return;
+      if (cat && cat.orcamentavel === false) return;
+      lista.push(t);
+    });
+    ONDE_STATE.itens = lista;
+    ONDE_STATE.carregando = false;
+    if (!ONDE_STATE.mes) {
+      var dia = parseInt(hoje.substring(8, 10), 10);
+      ONDE_STATE.mes = dia <= 10 ? addMeses(primeiroDiaMesISO(hoje), -1).substring(0, 7) : hoje.substring(0, 7);
+    }
+    ondeRender();
+  }).catch(function (e) {
+    console.error(e);
+    ONDE_STATE.carregando = false;
+    var wrap = document.getElementById('ondeWrap');
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>Erro ao carregar: ' + escMeta(e.message) + '</div>';
+  });
+}
+
+function ondeSelecionarMes(ym) { ONDE_STATE.mes = ym; ONDE_STATE.abertas = {}; ondeRender(); }
+window.ondeSelecionarMes = ondeSelecionarMes;
+function ondeSetVariavel(v) { ONDE_STATE.soVariavel = v; ondeRender(); }
+window.ondeSetVariavel = ondeSetVariavel;
+function ondeToggleCat(id) { ONDE_STATE.abertas[id] = !ONDE_STATE.abertas[id]; ondeRender(); }
+window.ondeToggleCat = ondeToggleCat;
+
+function ondeSoma(lista) { var s = 0; for (var i = 0; i < lista.length; i++) s += lista[i].valor; return s; }
+
+function ondeAgruparPorCategoria(lista) {
+  var m = {};
+  for (var i = 0; i < lista.length; i++) {
+    var c = lista[i].categoria || 'outros';
+    if (!m[c]) m[c] = { id: c, total: 0, fixo: 0, itens: [] };
+    m[c].total += lista[i].valor;
+    if (!ondeEhVariavel(lista[i])) m[c].fixo += lista[i].valor;
+    m[c].itens.push(lista[i]);
+  }
+  return m;
+}
+
+function ondeAgruparEstab(lista) {
+  var m = {}, ordem = [];
+  for (var i = 0; i < lista.length; i++) {
+    var t = lista[i];
+    var k = assinaturaDescricao(t.descricao) || '(SEM DESCRIÇÃO)';
+    if (!m[k]) { m[k] = { chave: k, nome: t.descricao || '(sem descrição)', total: 0, n: 0, itens: [] }; ordem.push(k); }
+    m[k].total += t.valor; m[k].n++; m[k].itens.push(t);
+  }
+  return ordem.map(function (k) { return m[k]; }).sort(function (a, b) { return b.total - a.total; });
+}
+
+function ondeDelta(atual, base) {
+  if (!base || base <= 0) return null;
+  return Math.round((atual - base) / base * 100);
+}
+
+function ondeSeta(pct) {
+  if (pct === null) return '';
+  if (pct > 0) return '<span style="color:var(--despesa);">▲ ' + pct + '%</span>';
+  if (pct < 0) return '<span style="color:var(--receita);">▼ ' + Math.abs(pct) + '%</span>';
+  return '<span style="color:var(--muted);">= igual</span>';
+}
+
+function ondeCalcular() {
+  var ym = ONDE_STATE.mes;
+  var todos = ONDE_STATE.itens || [];
+  var filtro = function (t) {
+    if (eventoOculto(t)) return false;
+    if (ONDE_STATE.soVariavel && !ondeEhVariavel(t)) return false;
+    return true;
+  };
+  var base = todos.filter(filtro);
+  var r = { ym: ym };
+  r.mes = base.filter(function (t) { return String(t.data).substring(0, 7) === ym; });
+  var mesAnt = addMeses(ym + '-01', -1).substring(0, 7);
+  r.mesAnt = mesAnt;
+  r.ant = base.filter(function (t) { return String(t.data).substring(0, 7) === mesAnt; });
+  // média dos até 3 meses anteriores ao selecionado, considerando só meses com lançamentos
+  var porMesPrev = {};
+  for (var k = 1; k <= 3; k++) porMesPrev[addMeses(ym + '-01', -k).substring(0, 7)] = [];
+  base.forEach(function (t) { var m = String(t.data).substring(0, 7); if (porMesPrev[m]) porMesPrev[m].push(t); });
+  r.mesesPrev = Object.keys(porMesPrev).filter(function (m) { return porMesPrev[m].length > 0; });
+  r.nPrev = r.mesesPrev.length;
+  r.prevItens = [];
+  r.mesesPrev.forEach(function (m) { r.prevItens = r.prevItens.concat(porMesPrev[m]); });
+  r.total = ondeSoma(r.mes);
+  r.totalAnt = ondeSoma(r.ant);
+  r.mediaPrev = r.nPrev ? ondeSoma(r.prevItens) / r.nPrev : 0;
+  r.porCat = ondeAgruparPorCategoria(r.mes);
+  r.porCatPrev = ondeAgruparPorCategoria(r.prevItens);
+  r.porCatAnt = ondeAgruparPorCategoria(r.ant);
+  r.fixos = 0;
+  r.mes.forEach(function (t) { if (!ondeEhVariavel(t)) r.fixos += t.valor; });
+  r.outros = r.porCat['outros'] ? r.porCat['outros'].total : 0;
+  return r;
+}
+
+function ondeMesesDisponiveis() {
+  var hoje = todayISO();
+  var out = [];
+  for (var m = 0; m <= 5; m++) out.push(addMeses(primeiroDiaMesISO(hoje), -m).substring(0, 7));
+  return out;
+}
+
+function ondeSugestoes(r) {
+  var linhas = [];
+  var potencial = 0;
+  // 1) metas estouradas
+  var cfg = METAS_STATE.cfg || metasCfgPadrao();
+  (cfg.metas || []).forEach(function (meta) {
+    if (!meta.meta || meta.meta <= 0) return;
+    var gasto = 0;
+    r.mes.forEach(function (t) { if (metasCombina(meta, t)) gasto += t.valor; });
+    if (gasto > meta.meta) {
+      linhas.push({ ord: gasto - meta.meta + 1000000, ic: meta.emoji || '🎯', tit: meta.nome + ' passou da meta', det: fmtBRL(gasto) + ' de ' + fmtBRL(meta.meta) + ' (+' + fmtBRL(gasto - meta.meta) + ')', ec: gasto - meta.meta });
+    }
+  });
+  // 2) o que subiu em relação à média
+  if (r.nPrev > 0) {
+    for (var id in r.porCat) {
+      var cat = getCategoriaById(id);
+      var atual = r.porCat[id].total - r.porCat[id].fixo;
+      var media = r.porCatPrev[id] ? (r.porCatPrev[id].total - r.porCatPrev[id].fixo) / r.nPrev : 0;
+      var delta = atual - media;
+      if (delta >= 300 && atual > 0) {
+        linhas.push({ cid: id, ord: delta, ic: cat ? cat.emoji : '📦', tit: (cat ? cat.nome : id) + ' acima da média', det: fmtBRL(atual) + ' vs média ' + fmtBRL(media) + ' (+' + fmtBRL(delta) + ')', ec: delta });
+      }
+    }
+  }
+  // 3) discricionários grandes
+  var disc = ['lazer', 'presentes', 'vestuario', 'transporte', 'assinaturas', 'alimentacao'];
+  disc.forEach(function (id) {
+    var c = r.porCat[id];
+    if (!c) return;
+    var v = c.total - c.fixo;
+    if (v >= 500) {
+      var cat2 = getCategoriaById(id);
+      linhas.push({ cid: id, ord: v / 10, ic: cat2.emoji, tit: cat2.nome + ' é gasto escolhido', det: fmtBRL(v) + ' no mês · cada 10% a menos = ' + fmtBRL(v / 10), ec: 0 });
+    }
+  });
+  linhas.sort(function (a, b) { return b.ord - a.ord; });
+  var vistos = {}, finais = [];
+  for (var i = 0; i < linhas.length; i++) {
+    var kv = linhas[i].cid || linhas[i].tit;
+    if (vistos[kv]) continue;
+    vistos[kv] = true;
+    finais.push(linhas[i]);
+    potencial += linhas[i].ec;
+    if (finais.length >= 6) break;
+  }
+  return { linhas: finais, potencial: potencial };
+}
+
+function ondeRecorrentes(r) {
+  // estabelecimentos que aparecem em pelo menos 3 dos 4 últimos meses (selecionado + 3 anteriores)
+  var todos = (ONDE_STATE.itens || []).filter(function (t) { return !eventoOculto(t); });
+  var meses = [r.ym];
+  for (var k = 1; k <= 3; k++) meses.push(addMeses(r.ym + '-01', -k).substring(0, 7));
+  var m = {};
+  todos.forEach(function (t) {
+    var ym = String(t.data).substring(0, 7);
+    if (meses.indexOf(ym) === -1) return;
+    var key = assinaturaDescricao(t.descricao);
+    if (!key) return;
+    if (!m[key]) m[key] = { nome: t.descricao, porMes: {} };
+    m[key].porMes[ym] = (m[key].porMes[ym] || 0) + t.valor;
+  });
+  var out = [];
+  for (var key2 in m) {
+    var ms = Object.keys(m[key2].porMes);
+    if (ms.length < 3) continue;
+    var soma = 0;
+    ms.forEach(function (x) { soma += m[key2].porMes[x]; });
+    var media = soma / ms.length;
+    var max = 0, min = 1e12;
+    ms.forEach(function (x) { var v = m[key2].porMes[x]; if (v > max) max = v; if (v < min) min = v; });
+    if (media < 30 || max > min * 1.6) continue; // só valores parecidos mês a mês
+    out.push({ nome: m[key2].nome, media: media, meses: ms.length });
+  }
+  out.sort(function (a, b) { return b.media - a.media; });
+  return out.slice(0, 6);
+}
+
+function ondeRender() {
+  var wrap = document.getElementById('ondeWrap');
+  if (!wrap || ONDE_STATE.itens === null) return;
+  var r = ondeCalcular();
+  var h = '';
+
+  // seletor de mês + variáveis + eventos
+  h += '<div class="filtro-row">';
+  ondeMesesDisponiveis().forEach(function (ym) {
+    h += '<div class="filtro-chip' + (ym === r.ym ? ' on' : '') + '" onclick="ondeSelecionarMes(\'' + ym + '\')">' + mesLabelCurto(ym) + '</div>';
+  });
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px;">';
+  h += '<div class="seg"><button type="button" class="' + (!ONDE_STATE.soVariavel ? 'on' : '') + '" onclick="ondeSetVariavel(false)">Tudo</button><button type="button" class="' + (ONDE_STATE.soVariavel ? 'on' : '') + '" onclick="ondeSetVariavel(true)">Só variáveis</button></div>';
+  var nEv = (ONDE_STATE.itens || []).filter(function (t) { return t.evento; }).length;
+  h += htmlToggleEventos(nEv);
+  h += '</div>';
+
+  if (r.mes.length === 0) {
+    h += '<div class="empty-state"><div class="ic">📭</div>Sem despesas em ' + mesLabelCurto(r.ym) + (ONDE_STATE.soVariavel ? ' (só variáveis)' : '') + '.</div>';
+    wrap.innerHTML = h;
+    return;
+  }
+
+  // KPIs
+  var dAnt = ondeDelta(r.total, r.totalAnt);
+  var dMed = ondeDelta(r.total, r.mediaPrev);
+  var pctOutros = r.total > 0 ? Math.round(r.outros / r.total * 100) : 0;
+  h += '<div class="kpis">';
+  h += '<div class="kpi hero"><div class="lab">Gasto em ' + mesLabelCurto(r.ym) + '</div><div class="val">' + fmtBRL(r.total) + '</div><div class="sub">' + (r.fixos > 0 && !ONDE_STATE.soVariavel ? '📌 ' + fmtBRL(r.fixos) + ' fixos/parcelados · 🛒 ' + fmtBRL(r.total - r.fixos) + ' variáveis' : 'só despesas variáveis') + '</div></div>';
+  h += '<div class="kpi"><div class="lab">vs ' + mesLabelCurto(r.mesAnt) + '</div><div class="val" style="font-size:18px;">' + (dAnt === null ? '—' : ondeSeta(dAnt)) + '</div><div class="sub">' + (r.totalAnt > 0 ? 'era ' + fmtBRL(r.totalAnt) : 'sem dados') + '</div></div>';
+  h += '<div class="kpi"><div class="lab">vs média ' + (r.nPrev || 0) + ' mês(es)</div><div class="val" style="font-size:18px;">' + (dMed === null ? '—' : ondeSeta(dMed)) + '</div><div class="sub">' + (r.nPrev ? 'média ' + fmtBRL(r.mediaPrev) : 'sem dados') + '</div></div>';
+  h += '</div>';
+
+  if (pctOutros >= 8) {
+    h += '<div class="card" style="border-color:var(--alerta);"><div class="card-title">⚠️ ' + pctOutros + '% do gasto está em "Outros"</div><div class="card-sub">' + fmtBRL(r.outros) + ' sem destino definido. Classifique logo abaixo para a análise ficar confiável.</div></div>';
+  }
+
+  // para onde foi
+  var cats = Object.keys(r.porCat).map(function (id) { return r.porCat[id]; }).sort(function (a, b) { return b.total - a.total; });
+  var maxCat = cats.length ? cats[0].total : 1;
+  h += '<div class="card"><div class="card-title">Para onde foi o dinheiro</div><div class="card-sub">Toque numa categoria para ver as subcategorias e os estabelecimentos.</div>';
+  cats.forEach(function (c) {
+    var cat = getCategoriaById(c.id);
+    var pct = r.total > 0 ? Math.round(c.total / r.total * 100) : 0;
+    var media = r.porCatPrev[c.id] && r.nPrev ? r.porCatPrev[c.id].total / r.nPrev : 0;
+    var d = ondeDelta(c.total, media);
+    var aberta = !!ONDE_STATE.abertas[c.id];
+    h += '<div class="onde-cat" onclick="ondeToggleCat(\'' + c.id + '\')">';
+    h += '<div class="onde-linha"><span class="onde-nome">' + (cat ? cat.emoji + ' ' + escMeta(cat.nome) : escMeta(c.id)) + (c.fixo > 0 && c.fixo >= c.total * 0.8 ? ' <span class="tag tag-manual">📌 fixo</span>' : '') + '</span><span class="onde-val">' + fmtBRL(c.total) + '</span></div>';
+    h += '<div class="onde-barra"><i style="width:' + Math.max(2, Math.round(c.total / maxCat * 100)) + '%;"></i></div>';
+    h += '<div class="onde-sub">' + pct + '% do gasto' + (d !== null ? ' · vs média ' + ondeSeta(d) : (r.nPrev ? ' · novo vs média' : '')) + ' · ' + c.itens.length + ' lanç. ' + (aberta ? '▴' : '▾') + '</div>';
+    if (aberta) {
+      var subs = {};
+      c.itens.forEach(function (t) { var s = t.subcategoria || '(sem subcategoria)'; subs[s] = (subs[s] || 0) + t.valor; });
+      var subKeys = Object.keys(subs).sort(function (a, b) { return subs[b] - subs[a]; });
+      if (subKeys.length > 1 || (subKeys.length === 1 && subKeys[0] !== '(sem subcategoria)')) {
+        h += '<div class="onde-det"><b>Subcategorias</b>';
+        subKeys.slice(0, 6).forEach(function (s) { h += '<div class="onde-linha2"><span>' + escMeta(s) + '</span><span>' + fmtBRL(subs[s]) + '</span></div>'; });
+        h += '</div>';
+      }
+      var ests = ondeAgruparEstab(c.itens);
+      h += '<div class="onde-det"><b>Onde (estabelecimentos)</b>';
+      ests.slice(0, 8).forEach(function (e) {
+        h += '<div class="onde-linha2"><span>' + escMeta(e.nome) + (e.n > 1 ? ' <span style="color:var(--muted);">×' + e.n + '</span>' : '') + '</span><span>' + fmtBRL(e.total) + '</span></div>';
+      });
+      if (ests.length > 8) h += '<div class="rev-meta">+ ' + (ests.length - 8) + ' outros estabelecimentos</div>';
+      h += '<div class="btn-row" style="margin-top:8px;"><button type="button" class="pill pill-sub" onclick="event.stopPropagation();ondeVerLancamentos(\'' + c.id + '\')">Ver lançamentos →</button></div>';
+      h += '</div>';
+    }
+    h += '</div>';
+  });
+  h += '</div>';
+
+  // o que subiu
+  if (r.nPrev > 0) {
+    var subiu = [];
+    cats.forEach(function (c) {
+      var media2 = r.porCatPrev[c.id] ? r.porCatPrev[c.id].total / r.nPrev : 0;
+      if (c.total - media2 >= 200) subiu.push({ c: c, media: media2, delta: c.total - media2 });
+    });
+    subiu.sort(function (a, b) { return b.delta - a.delta; });
+    h += '<div class="card"><div class="card-title">O que subiu</div><div class="card-sub">Categorias acima da média dos ' + r.nPrev + ' mês(es) anteriores</div>';
+    if (subiu.length === 0) h += '<div class="rev-meta">Nada relevante acima da média. 👏</div>';
+    subiu.slice(0, 6).forEach(function (x) {
+      var ct = getCategoriaById(x.c.id);
+      h += '<div class="onde-linha2"><span>' + (ct ? ct.emoji + ' ' + escMeta(ct.nome) : escMeta(x.c.id)) + '</span><span style="color:var(--despesa);font-weight:700;">+' + fmtBRL(x.delta) + '</span></div>';
+      h += '<div class="rev-meta" style="margin:-2px 0 6px;">' + fmtBRL(x.c.total) + ' agora · média ' + fmtBRL(x.media) + '</div>';
+    });
+    h += '</div>';
+  }
+
+  // sugestões de redução
+  var sug = ondeSugestoes(r);
+  h += '<div class="card"><div class="card-title">Onde reduzir</div><div class="card-sub">Só considera o que é variável (sem fixos e parcelados) e as suas metas.</div>';
+  if (sug.linhas.length === 0) h += '<div class="rev-meta">Nada se destaca neste mês.</div>';
+  sug.linhas.forEach(function (l) {
+    h += '<div class="onde-sug"><div class="onde-sug-ic">' + l.ic + '</div><div><div class="onde-sug-tit">' + escMeta(l.tit) + '</div><div class="rev-meta">' + escMeta(l.det) + '</div></div></div>';
+  });
+  if (sug.potencial > 0) h += '<div class="card-sub" style="margin-top:8px;"><b>Voltando à meta/média nesses itens: ≈ ' + fmtBRL(sug.potencial) + ' a menos por mês.</b></div>';
+  h += '</div>';
+
+  // Outros: classificar
+  h += ondeHtmlOutros(r);
+
+  // recorrentes
+  var rec = ondeRecorrentes(r);
+  if (rec.length) {
+    h += '<div class="card"><div class="card-title">Gastos que se repetem todo mês</div><div class="card-sub">Mesmo estabelecimento, valor parecido, em 3 dos últimos 4 meses. Vale revisar se ainda fazem sentido.</div>';
+    rec.forEach(function (x) { h += '<div class="onde-linha2"><span>' + escMeta(x.nome) + '</span><span>' + fmtBRL(x.media) + '/mês</span></div>'; });
+    h += '</div>';
+  }
+
+  // maiores compras
+  var maiores = r.mes.slice().sort(function (a, b) { return b.valor - a.valor; }).slice(0, 10);
+  ONDE_STATE.maiores = maiores;
+  h += '<div class="card"><div class="card-title">Maiores compras do mês</div><div class="card-sub">Toque para editar ou reclassificar.</div>';
+  maiores.forEach(function (t) {
+    var ct = getCategoriaById(t.categoria);
+    h += '<div class="onde-linha2 onde-clicavel" onclick="ondeEditar(' + maiores.indexOf(t) + ')"><span>' + (ct ? ct.emoji + ' ' : '') + escMeta(t.descricao || (ct ? ct.nome : '')) + ' <span style="color:var(--muted);font-size:11px;">' + isoParaBR(t.data).substring(0, 5) + '</span></span><span>' + fmtBRL(t.valor) + '</span></div>';
+  });
+  h += '</div>';
+
+  wrap.innerHTML = h;
+}
+
+function ondeEditar(i) { var t = (ONDE_STATE.maiores || [])[i]; if (t) abrirEdicao(t); }
+window.ondeEditar = ondeEditar;
+
+function ondeVerLancamentos(catId) {
+  var ym = ONDE_STATE.mes;
+  drillDownParaLancamentos({ categoria: [catId], deISO: ym + '-01', ateISO: ultimoDiaMesISO(ym + '-01') });
+}
+window.ondeVerLancamentos = ondeVerLancamentos;
+
+/* ---- classificar "Outros" por estabelecimento ---- */
+function ondeGruposOutros(r) {
+  var lista = r.porCat['outros'] ? r.porCat['outros'].itens : [];
+  return ondeAgruparEstab(lista).slice(0, 8);
+}
+
+function ondeHtmlOutros(r) {
+  var grupos = ondeGruposOutros(r);
+  ONDE_STATE.gruposOutros = grupos;
+  if (grupos.length === 0) return '';
+  var h = '<div class="card"><div class="card-title">📦 Classificar o que está em "Outros"</div><div class="card-sub">Escolha a categoria de cada estabelecimento. Vale para todos os lançamentos parecidos dos últimos 6 meses e o app aprende para os próximos.</div>';
+  grupos.forEach(function (g, idx) {
+    h += '<div class="onde-out">';
+    h += '<div class="onde-linha2"><span><b>' + escMeta(g.nome) + '</b> <span style="color:var(--muted);">×' + g.n + '</span></span><span>' + fmtBRL(g.total) + '</span></div>';
+    h += '<div class="rev-campos"><select class="select-inline" id="oc-cat-' + idx + '" onchange="ondeEscolheCat(' + idx + ', this.value)"><option value="">Categoria…</option>';
+    categoriasParaTipo('despesa').forEach(function (c) { if (c.id !== 'outros') h += '<option value="' + c.id + '">' + c.emoji + ' ' + escMeta(c.nome) + '</option>'; });
+    h += '</select><span id="oc-sub-' + idx + '"></span>';
+    h += '<button type="button" class="pill pill-sub" onclick="ondeAplicarOutros(' + idx + ')">Aplicar</button></div>';
+    h += '</div>';
+  });
+  h += '</div>';
+  return h;
+}
+
+function ondeEscolheCat(idx, catId) {
+  var span = document.getElementById('oc-sub-' + idx);
+  if (!span) return;
+  var cat = catId ? getCategoriaById(catId) : null;
+  if (!cat || !cat.subcategorias || cat.subcategorias.length === 0) { span.innerHTML = ''; return; }
+  var h = '<select class="select-inline" id="oc-subsel-' + idx + '"><option value="">Subcategoria (opcional)</option>';
+  cat.subcategorias.forEach(function (s) { h += '<option value="' + escMeta(s) + '">' + escMeta(s) + '</option>'; });
+  h += '</select>';
+  span.innerHTML = h;
+}
+window.ondeEscolheCat = ondeEscolheCat;
+
+function ondeAplicarOutros(idx) {
+  var fb = window._fb;
+  var g = (ONDE_STATE.gruposOutros || [])[idx];
+  if (!g) return;
+  var catId = document.getElementById('oc-cat-' + idx).value;
+  if (!catId) { alert('Escolha uma categoria primeiro.'); return; }
+  var subEl = document.getElementById('oc-subsel-' + idx);
+  var sub = subEl && subEl.value ? subEl.value : null;
+  // todos os lançamentos em "Outros" com a mesma assinatura nos últimos 6 meses carregados
+  var alvo = (ONDE_STATE.itens || []).filter(function (t) { return (t.categoria || 'outros') === 'outros' && (assinaturaDescricao(t.descricao) || '(SEM DESCRIÇÃO)') === g.chave; });
+  var cat = getCategoriaById(catId);
+  if (!confirm('Mover ' + alvo.length + ' lançamento(s) de "' + g.nome + '" para ' + cat.nome + (sub ? ' › ' + sub : '') + '?')) return;
+  var TAM = 400;
+  function lote(i) {
+    if (i >= alvo.length) return Promise.resolve();
+    var batch = fb.writeBatch(fb.db);
+    alvo.slice(i, i + TAM).forEach(function (t) {
+      batch.update(fb.doc(fb.db, 'familias', FAMILIA_ID, 'transacoes', t.id), { categoria: catId, subcategoria: sub });
+    });
+    return batch.commit().then(function () { return lote(i + TAM); });
+  }
+  lote(0).then(function () {
+    return g.chave === '(SEM DESCRIÇÃO)' ? null : salvarRegra(g.nome, catId, sub);
+  }).then(function () {
+    var itensRef = ONDE_STATE.itens;
+    alvo.forEach(function (t) { t.categoria = catId; t.subcategoria = sub; });
+    invalidarCachesAgregados();
+    ONDE_STATE.itens = itensRef;
+    atualizarStatsMes();
+    ondeRender();
+  }).catch(function (e) { console.error(e); alert('Erro ao gravar: ' + e.message); });
+}
+window.ondeAplicarOutros = ondeAplicarOutros;
+
+/* ==================================================================== */
 /* ==================== ABA RECORRENTES ================================ */
 /* ==================================================================== */
 
@@ -5761,7 +6487,7 @@ function chaveParcelamento(t) {
 function calcularParcelamentosAbertos(itens) {
   var grupos = {};
   itens.forEach(function (t) {
-    if (!t.parcelado || !t.totalParcelas || t.totalParcelas <= 1 || !t.parcelaAtual) return;
+    if (!t.parcelado || !t.totalParcelas || t.totalParcelas <= 1 || !t.parcelaAtual || !t.data) return;
     var chave = chaveParcelamento(t);
     var g = grupos[chave];
     if (!g) { g = grupos[chave] = { descricao: t.descricao, conta: t.conta, categoria: t.categoria, subcategoria: t.subcategoria || null, quem: t.quem, totalParcelas: t.totalParcelas, valorParcela: t.valor, maxParcela: 0, ultimaData: null }; }
@@ -5793,6 +6519,7 @@ function calcularParcelamentosAbertos(itens) {
 function projetarProximosMeses(gruposAbertos) {
   var porMes = {};
   gruposAbertos.forEach(function (g) {
+    if (!g.ultimaData) return;
     for (var i = 1; i <= g.falta; i++) {
       var mesFuturo = addMeses(g.ultimaData, i).substring(0, 7);
       porMes[mesFuturo] = (porMes[mesFuturo] || 0) + g.valorParcela;
