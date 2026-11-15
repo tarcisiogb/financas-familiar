@@ -907,7 +907,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-11-14.1';
+var APP_VERSAO = '2026-11-14.2';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -2387,6 +2387,7 @@ var IMPORT_STATE = {
   arquivoNome: null,
   pagamentosIgnorados: 0,
   faturaInfo: null,
+  ordemRevisao: 'original',
   historicoTransacoes: null,
   historicoResumo: null
 };
@@ -3581,8 +3582,15 @@ function renderRevisaoImportacao() {
   if (visiveis.length === 0) {
     html += '<div class="empty-state"><div class="ic">✅</div>Nada novo pra importar — tudo já estava sincronizado.</div>';
   } else {
-    for (var i = 0; i < visiveis.length; i++) {
-      html += renderLinhaRevisao(visiveis[i]);
+    html += '<div class="seg" style="margin:4px 0 10px;"><button type="button" class="' + (IMPORT_STATE.ordemRevisao !== 'valor' ? 'on' : '') + '" onclick="definirOrdemRevisao(\'original\')">Ordem do arquivo</button><button type="button" class="' + (IMPORT_STATE.ordemRevisao === 'valor' ? 'on' : '') + '" onclick="definirOrdemRevisao(\'valor\')">💰 Maior valor primeiro</button></div>';
+    var ordenados = visiveis;
+    if (IMPORT_STATE.ordemRevisao === 'valor') {
+      ordenados = visiveis.map(function (it, idx) { return { it: it, idx: idx }; })
+        .sort(function (a, b) { return (b.it.valor - a.it.valor) || (a.idx - b.idx); })
+        .map(function (x) { return x.it; });
+    }
+    for (var i = 0; i < ordenados.length; i++) {
+      html += renderLinhaRevisao(ordenados[i]);
     }
     html += '<div class="btn-row"><button class="btn btn-ghost" onclick="revMarcarEventoPorValor()">🏠 Marcar valores altos como Compra do AP…</button></div>';
     html += '<div class="btn-row"><button class="btn btn-primary" onclick="confirmarImportacao()">✅ Confirmar importação</button></div>';
@@ -3591,6 +3599,12 @@ function renderRevisaoImportacao() {
 
   document.getElementById('revisaoImportWrap').innerHTML = html;
 }
+
+function definirOrdemRevisao(o) {
+  IMPORT_STATE.ordemRevisao = o;
+  renderRevisaoImportacao();
+}
+window.definirOrdemRevisao = definirOrdemRevisao;
 
 function renderLinhaRevisao(item) {
   var corValor = item.tipo === 'despesa' ? 'despesa' : 'receita';
