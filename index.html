@@ -403,8 +403,20 @@ body { background:var(--bg); }
 .rem-tot { font-weight:700; border-bottom:0; }
 .rem-tab .rem-th, .rem-tab .rem-tr { display:grid; grid-template-columns:0.9fr 1.1fr 1.3fr 1.1fr; gap:6px; align-items:baseline; font-size:12.5px; padding:7px 0; border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
 .rem-tab .rem-th { font-size:10.5px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--muted); }
+.rem-tab.rem-tab3 .rem-th, .rem-tab.rem-tab3 .rem-tr { grid-template-columns:1.3fr 1fr 1fr; }
 .rem-tab small { display:block; font-size:10.5px; color:var(--muted); }
 .rem-tab small.pos { color:var(--receita); } .rem-tab small.neg { color:var(--despesa); }
+.rem-grid { overflow-x:auto; -webkit-overflow-scrolling:touch; border-radius:14px; }
+.rem-grid table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; font-size:11.5px; font-variant-numeric:tabular-nums; }
+.rem-grid th, .rem-grid td { padding:6px 8px; text-align:right; white-space:nowrap; border-bottom:1px solid var(--border); background:var(--card); }
+.rem-grid th { font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); position:sticky; top:0; }
+.rem-grid th:first-child, .rem-grid td:first-child { text-align:left; position:sticky; left:0; z-index:1; min-width:150px; max-width:190px; overflow:hidden; text-overflow:ellipsis; box-shadow:1px 0 0 var(--border); }
+.rem-grid td.pos { color:var(--receita); } .rem-grid td.neg { color:var(--despesa); }
+.rem-grid td.z { color:var(--muted); opacity:.5; }
+.rem-grid td.tt { font-weight:700; border-left:1px solid var(--border); }
+.rem-grid tr.g td { background:var(--bg); font-size:10px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--muted); text-align:left; }
+.rem-grid tr.tot td { font-weight:700; }
+.rem-grid tr.liq td { color:var(--receita); }
 .rem-marco.sug { border-style:dashed; }
 .rem-num { width:26px; height:26px; border-radius:50%; background:#52525B; color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none; }
 .rem-delta { font-size:14px; margin-bottom:4px; font-variant-numeric:tabular-nums; }
@@ -945,7 +957,7 @@ function mudarTab(nome) {
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-11-17.1';
+var APP_VERSAO = '2026-11-19.1';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -6506,12 +6518,13 @@ function remCalc() {
   if (REM_STATE.calc) return REM_STATE.calc;
   var regs = REM_STATE.reg;
   var ag = remAgregarMeses(regs);
+  var efs = remEfetivos(regs);
   var yms = Object.keys(ag.meses).map(Number).sort(function (a, b) { return a - b; });
   var pts = remPontosBase(regs);
   var niveis = remNiveis(pts);
   var ptMap = {};
   pts.forEach(function (p) { ptMap[p.ym] = p; });
-  var c = { ag: ag, yms: yms, pts: pts, ptMap: ptMap, niveis: niveis, nm: {}, first: yms[0], last: yms[yms.length - 1], iniBase: pts.length ? pts[0].ym : yms[0] };
+  var c = { ag: ag, ef: efs, yms: yms, pts: pts, ptMap: ptMap, niveis: niveis, nm: {}, first: yms[0], last: yms[yms.length - 1], iniBase: pts.length ? pts[0].ym : yms[0] };
   if (yms.length && niveis.length) c.nm = remNivelPorMes(niveis, c.iniBase, c.last);
   REM_STATE.calc = c;
   return c;
@@ -6557,6 +6570,8 @@ function remRender() {
   w.innerHTML = h;
   ligarTooltipSvg('remChartBase');
   ligarTooltipSvg('remChartAno');
+  ligarTooltipSvg('remChartMedia');
+  ligarTooltipSvg('remChartPlr');
 }
 
 /* ---------- EVOLUÇÃO ---------- */
@@ -6595,8 +6610,45 @@ function remHtmlEvolucao() {
   h += '<div class="chart" id="remChartAno">' + remSvgAnos(c) + '<div class="tip"></div></div>';
   h += '</div>';
 
-  /* tabela por ano */
   var anos = remTotaisAno(c);
+  /* média mensal por ano */
+  h += '<div class="card"><div class="card-title">Média mensal por ano</div><div class="card-sub">Tudo que entrou no ano (salário, 13º, férias, PLR, bônus) dividido pelos meses com dados.</div>';
+  h += '<div class="legend"><span><i class="rem-sw" style="background:var(--rem1)"></i>Bruta</span><span><i class="rem-sw" style="background:var(--rem3)"></i>Líquida</span></div>';
+  h += '<div class="chart" id="remChartMedia">' + remSvgGrupo(anos, 'medBruto', 'medLiq', 'Média mensal') + '<div class="tip"></div></div>';
+  h += '<div class="rem-tab rem-tab3"><div class="rem-th"><span>Ano</span><span>Bruta/mês</span><span>Líquida/mês</span></div>';
+  anos.slice().reverse().forEach(function (a) {
+    h += '<div class="rem-tr"><span><b>' + a.ano + '</b><small>' + a.nMeses + (a.nMeses === 1 ? ' mês' : ' meses') + '</small></span><span>' + remBRL0(a.medBruto) + '</span><span>' + remBRL0(a.medLiq) + '</span></div>';
+  });
+  h += '</div>';
+  var ultComp = c.ag.meses[c.last] && !c.ag.meses[c.last].regs.some(function (g) { return g.tipo === 'salario'; });
+  if (ultComp) h += '<div class="card-sub" style="margin-top:8px;">' + remYmLabel(c.last) + ' ainda não entrou na média: só há adiantamentos, sem o holerite mensal.</div>';
+  h += '</div>';
+
+  /* PLR / PPR */
+  var anosPlr = anos.filter(function (a) { return a.plrPag.length || a.plrBruto > 0; });
+  if (anosPlr.length) {
+    var iA = anos.indexOf(anosPlr[0]);
+    var serie = anos.slice(iA);
+    var totL = 0, maior = anosPlr[0];
+    anosPlr.forEach(function (a) { totL += a.plrLiq; if (a.plrBruto > maior.plrBruto) maior = a; });
+    var ultAno = anosPlr[anosPlr.length - 1];
+    h += '<div class="card"><div class="card-title">PLR / PPR recebidos</div><div class="card-sub">Participação nos resultados por ano de pagamento. Bruto sem duplicar adiantamentos; líquido = o que caiu na conta.</div>';
+    h += '<div class="kpis k3" style="margin:0 0 10px;"><div class="kpi"><div class="lab">Líquido acumulado</div><div class="val pos">' + remBRL0(totL) + '</div><div class="sub">' + anosPlr[0].ano + ' a ' + ultAno.ano + '</div></div>';
+    h += '<div class="kpi"><div class="lab">Maior ano (bruto)</div><div class="val">' + remBRL0(maior.plrBruto) + '</div><div class="sub">' + maior.ano + '</div></div>';
+    h += '<div class="kpi"><div class="lab">Último ano</div><div class="val">' + remBRL0(ultAno.plrBruto) + '</div><div class="sub">' + ultAno.ano + (ultAno.parcial ? ' (parcial)' : '') + '</div></div></div>';
+    h += '<div class="legend"><span><i class="rem-sw" style="background:var(--rem1)"></i>Bruto</span><span><i class="rem-sw" style="background:var(--rem3)"></i>Líquido recebido</span></div>';
+    h += '<div class="chart" id="remChartPlr">' + remSvgGrupo(serie, 'plrBruto', 'plrLiq', 'PLR / PPR') + '<div class="tip"></div></div>';
+    h += '<div class="rem-gr">Pagamentos</div><div class="rem-tab rem-tab3"><div class="rem-th"><span>Mês</span><span>Bruto</span><span>Líquido</span></div>';
+    var pags = [];
+    anosPlr.forEach(function (a) { a.plrPag.forEach(function (p) { pags.push(p); }); });
+    pags.sort(function (x, y) { return y.ym - x.ym; });
+    pags.forEach(function (p) {
+      h += '<div class="rem-tr"><span><b>' + remYmLabelCurto(p.ym) + '</b><small>' + escMeta(p.rot) + (p.ant ? ' · adiant.' : '') + '</small></span><span>' + remBRL0(p.tp) + '</span><span>' + remBRL0(p.li) + '</span></div>';
+    });
+    h += '</div></div>';
+  }
+
+  /* tabela por ano */
   h += '<div class="card"><div class="card-title">Ano a ano</div><div class="card-sub">Salário-base ao fim do ano, bruto e líquido recebidos.</div>';
   h += '<div class="rem-tab"><div class="rem-th"><span>Ano</span><span>Base (fim)</span><span>Bruto</span><span>Líquido</span></div>';
   anos.slice().reverse().forEach(function (a) {
@@ -6613,14 +6665,28 @@ function remTotaisAno(c) {
   var a0 = Math.floor(c.first / 100), a1 = Math.floor(c.last / 100);
   var prev = null;
   for (var a = a0; a <= a1; a++) {
-    var t = { ano: a, bruto: 0, liq: 0, comp: {}, base: 0, parcial: a === a1 && c.last % 100 < 12, varBruto: null };
+    var t = { ano: a, bruto: 0, liq: 0, comp: {}, base: 0, parcial: a === a1 && c.last % 100 < 12, varBruto: null, nMeses: 0, mBruto: 0, mLiq: 0, plrBruto: 0, plrLiq: 0, plrPag: [] };
     REM_COMP.forEach(function (cp) { t.comp[cp] = 0; });
     for (var mth = 1; mth <= 12; mth++) {
       var ym = a * 100 + mth;
       var m = c.ag.meses[ym];
-      if (m) { t.bruto += m.bruto; t.liq += m.liq; REM_COMP.forEach(function (cp) { t.comp[cp] += m.comp[cp]; }); }
+      if (m) {
+        t.bruto += m.bruto; t.liq += m.liq; REM_COMP.forEach(function (cp) { t.comp[cp] += m.comp[cp]; });
+        /* média mensal: o último mês só entra se já tem o pagamento mensal (senão fica incompleto) */
+        var completo = m.regs.some(function (g) { return g.tipo === 'salario'; });
+        if (ym !== c.last || completo) { t.nMeses++; t.mBruto += m.bruto; t.mLiq += m.liq; }
+      }
       if (c.nm[ym]) t.base = c.nm[ym];
     }
+    t.plrBruto = t.comp.plr;
+    c.ef.forEach(function (g) {
+      if (g.tipo !== 'plr' || Math.floor(g.ym / 100) !== a) return;
+      t.plrLiq += g.li;
+      t.plrPag.push({ ym: g.ym, rot: g.rot, tp: g.tp, li: g.li, ant: !!c.ag.ant[g.id], fonte: g.fonte });
+    });
+    t.plrPag.sort(function (x, y) { return x.ym - y.ym; });
+    t.medBruto = t.nMeses ? t.mBruto / t.nMeses : 0;
+    t.medLiq = t.nMeses ? t.mLiq / t.nMeses : 0;
     if (prev && prev.bruto > 0 && !t.parcial) t.varBruto = t.bruto / prev.bruto - 1;
     out.push(t);
     prev = t;
@@ -6638,14 +6704,15 @@ function remSvgBase(c) {
   var pw = W - ml - mr, ph = H - mt - mb;
   var maxV = 0;
   yms.forEach(function (m) { var v = c.nm[m] || 0; if (v > maxV) maxV = v; });
-  var ymax = relatNiceMax(maxV * 1.1);
+  var esc = remEscala(maxV);
+  var ymax = esc.max;
   function X(i) { return ml + pw * i / (yms.length - 1); }
   function Y(v) { return mt + ph - ph * Math.min(v, ymax) / ymax; }
   var idx = {};
   yms.forEach(function (m, i) { idx[m] = i; });
   var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Evolução do salário-base">';
-  for (var g = 0; g <= 4; g++) {
-    var gv = ymax * g / 4;
+  for (var g = 0; g <= esc.n; g++) {
+    var gv = esc.passo * g;
     s += '<line class="grid" x1="' + ml + '" x2="' + (W - mr) + '" y1="' + Y(gv).toFixed(1) + '" y2="' + Y(gv).toFixed(1) + '"/>';
     s += '<text x="' + (ml - 6) + '" y="' + (Y(gv) + 4).toFixed(1) + '" text-anchor="end">' + relatFmtK(gv) + '</text>';
   }
@@ -6702,6 +6769,51 @@ function remSvgBase(c) {
   return s;
 }
 
+function remEscala(maxV) {
+  if (!(maxV > 0)) return { max: 1, passo: 1, n: 1 };
+  var alvo = maxV * 1.04;
+  var mag = Math.pow(10, Math.floor(Math.log(alvo / 4) / Math.LN10));
+  var cands = [1, 2, 5, 10];
+  var passo = mag * 10;
+  for (var i = 0; i < cands.length; i++) { if (Math.ceil(alvo / (cands[i] * mag) - 1e-9) <= 6) { passo = cands[i] * mag; break; } }
+  var n = Math.ceil(alvo / passo - 1e-9);
+  return { max: n * passo, passo: passo, n: n };
+}
+
+function remSvgGrupo(anos, kB, kL, rotulo) {
+  var W = 640, H = 240, ml = 46, mr = 10, mt = 20, mb = 26;
+  var pw = W - ml - mr, ph = H - mt - mb;
+  var maxV = 0;
+  anos.forEach(function (a) { if (a[kB] > maxV) maxV = a[kB]; if (a[kL] > maxV) maxV = a[kL]; });
+  var esc = remEscala(maxV * 1.08);
+  var ymax = esc.max;
+  var slot = pw / anos.length;
+  var bw = Math.min(22, slot * 0.36);
+  function Y(v) { return mt + ph - ph * v / ymax; }
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escMeta(rotulo) + '">';
+  for (var g = 0; g <= esc.n; g++) {
+    var gv = esc.passo * g;
+    s += '<line class="grid" x1="' + ml + '" x2="' + (W - mr) + '" y1="' + Y(gv).toFixed(1) + '" y2="' + Y(gv).toFixed(1) + '"/>';
+    s += '<text x="' + (ml - 6) + '" y="' + (Y(gv) + 4).toFixed(1) + '" text-anchor="end">' + relatFmtK(gv) + '</text>';
+  }
+  anos.forEach(function (a, i) {
+    var cx = ml + slot * i + slot / 2;
+    [[kB, 'var(--rem1)', -bw - 1], [kL, 'var(--rem3)', 1]].forEach(function (b) {
+      var v = a[b[0]];
+      if (v > 0) s += '<rect x="' + (cx + b[2]).toFixed(1) + '" y="' + Y(v).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0.5, Y(0) - Y(v)).toFixed(1) + '" rx="2" fill="' + b[1] + '" style="pointer-events:none"/>';
+    });
+    var tip = '<b>' + a.ano + (a.parcial ? ' (parcial)' : '') + '</b><div class="r"><span>Bruto</span><span>' + remBRL0(a[kB]) + '</span></div><div class="r"><span>Líquido</span><span>' + remBRL0(a[kL]) + '</span></div>';
+    if (kB === 'plrBruto') a.plrPag.forEach(function (p) { tip += '<div class="r" style="opacity:.85"><span>' + remYmLabelCurto(p.ym) + (p.ant ? ' (adiant.)' : '') + '</span><span>' + remBRL0(p.li) + ' líq.</span></div>'; });
+    else if (a.nMeses) tip += '<div style="opacity:.8;margin-top:3px;">média de ' + a.nMeses + ' meses</div>';
+    s += '<rect class="hit" x="' + (ml + slot * i).toFixed(1) + '" y="' + mt + '" width="' + slot.toFixed(1) + '" height="' + ph + '" data-tip="' + relatEsc(tip) + '"/>';
+    var topo = Math.max(a[kB], a[kL]);
+    if (topo > 0 && slot > 34) s += '<text x="' + cx.toFixed(1) + '" y="' + (Y(topo) - 4).toFixed(1) + '" text-anchor="middle" class="lbl-val" style="font-size:9px;">' + relatFmtK(a[kB]) + '</text>';
+    s += '<text x="' + cx.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + (anos.length > 12 ? String(a.ano).slice(2) : a.ano) + '</text>';
+  });
+  s += '</svg>';
+  return s;
+}
+
 function remMarcosOrdenados() {
   return REM_STATE.marcos.slice().sort(function (a, b) { return a.ym - b.ym; });
 }
@@ -6712,13 +6824,14 @@ function remSvgAnos(c) {
   var pw = W - ml - mr, ph = H - mt - mb;
   var maxT = 0;
   anos.forEach(function (a) { if (a.bruto > maxT) maxT = a.bruto; });
-  var ymax = relatNiceMax(maxT * 1.1);
+  var esc = remEscala(maxT * 1.06);
+  var ymax = esc.max;
   var slot = pw / anos.length;
   var bw = Math.min(40, slot * 0.64);
   function Y(v) { return mt + ph - ph * v / ymax; }
   var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Remuneração bruta por ano">';
-  for (var g = 0; g <= 4; g++) {
-    var gv = ymax * g / 4;
+  for (var g = 0; g <= esc.n; g++) {
+    var gv = esc.passo * g;
     s += '<line class="grid" x1="' + ml + '" x2="' + (W - mr) + '" y1="' + Y(gv).toFixed(1) + '" y2="' + Y(gv).toFixed(1) + '"/>';
     s += '<text x="' + (ml - 6) + '" y="' + (Y(gv) + 4).toFixed(1) + '" text-anchor="end">' + relatFmtK(gv) + '</text>';
   }
@@ -6744,9 +6857,136 @@ function remSvgAnos(c) {
 }
 
 /* ---------- DETALHE ---------- */
+function remDetModo(m) { REM_STATE.detModo = m; remRender(); }
+function remSelAno(v) { REM_STATE.anoSel = parseInt(v, 10); remRender(); }
+
 function remHtmlDetalhe() {
   var c = remCalc();
   if (!c.yms.length) return '<div class="empty-state">Sem dados.</div>';
+  var modo = REM_STATE.detModo || 'ano';
+  var topo = '<div class="seg" style="margin-bottom:12px;"><button class="' + (modo === 'ano' ? 'on' : '') + '" onclick="remDetModo(\'ano\')">📋 Grade do ano</button><button class="' + (modo === 'mes' ? 'on' : '') + '" onclick="remDetModo(\'mes\')">🧾 Um mês</button></div>';
+  if (modo === 'ano') return topo + remHtmlGrade(c);
+  return topo + remHtmlDetalheMes(c);
+}
+
+/* grade: verbas nas linhas, meses nas colunas */
+function remGradeDados(c, ano) {
+  var yms = [];
+  for (var m = 1; m <= 12; m++) yms.push(ano * 100 + m);
+  var linhas = {};
+  var tot = { tp: {}, td: {}, li: {}, br: {} };
+  yms.forEach(function (ym) {
+    var mm = c.ag.meses[ym];
+    if (!mm) return;
+    tot.br[ym] = mm.bruto;
+    mm.regs.forEach(function (g) {
+      tot.tp[ym] = (tot.tp[ym] || 0) + g.tp;
+      tot.td[ym] = (tot.td[ym] || 0) + g.td;
+      tot.li[ym] = (tot.li[ym] || 0) + g.li;
+      g.itens.forEach(function (it) {
+        var nome = remVerbaCanon(it);
+        var k = it.t + '|' + remNorm(nome);
+        var l = linhas[k];
+        if (!l) l = linhas[k] = { t: it.t, d: nome, v: {}, soma: 0 };
+        l.v[ym] = (l.v[ym] || 0) + it.v;
+        l.soma += it.v;
+      });
+    });
+  });
+  var lista = Object.keys(linhas).map(function (k) { return linhas[k]; });
+  var ordT = { P: 0, D: 1, I: 2 };
+  lista.sort(function (a, b) { return (ordT[a.t] - ordT[b.t]) || (Math.abs(b.soma) - Math.abs(a.soma)); });
+  return { yms: yms, linhas: lista, tot: tot };
+}
+
+/* junta nomes equivalentes entre planilha e holerites (só descontos) */
+function remVerbaCanon(it) {
+  if (it.t !== 'D') return it.d;
+  var d = remNorm(it.d);
+  if (/^inss/.test(d)) return 'INSS';
+  if (/^irrf|^irpf|imposto s\/? ?a renda|imposto de renda/.test(d)) return 'IRPF';
+  if (/pgbl|previdencia|itauprev/.test(d)) return 'Previdência privada';
+  if (/seguro/.test(d)) return 'Seguro de vida';
+  if (/coparticip/.test(d)) return 'Coparticipação';
+  if (/plano medico|pl saude|plano de saude|^saude/.test(d)) return 'Plano de saúde';
+  if (/negocial|sindical/.test(d)) return 'Contribuição sindical';
+  if (/assistencial/.test(d)) return 'Contribuição assistencial';
+  return it.d;
+}
+
+function remNum0(v) { return Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
+function remHtmlGrade(c) {
+  var anos = [];
+  for (var a = Math.floor(c.last / 100); a >= Math.floor(c.first / 100); a--) anos.push(a);
+  if (!REM_STATE.anoSel || anos.indexOf(REM_STATE.anoSel) < 0) REM_STATE.anoSel = anos[0];
+  var ano = REM_STATE.anoSel;
+  var gd = remGradeDados(c, ano);
+  var h = '<div class="card"><div class="label" style="margin-top:0;">Ano</div><select class="input" onchange="remSelAno(this.value)">';
+  anos.forEach(function (x) { h += '<option value="' + x + '"' + (x === ano ? ' selected' : '') + '>' + x + '</option>'; });
+  h += '</select><div class="btn-row"><button class="btn btn-ghost" onclick="remBaixarCsv()">⬇️ Baixar CSV do ano</button></div>';
+  h += '<div class="card-sub" style="margin:6px 0 0;">Cada linha é uma verba do holerite/planilha, mês a mês (valores em R$, arredondados; toque numa célula para ver os centavos). Role para o lado para ver todos os meses.</div></div>';
+  h += '<div class="card" style="padding:0;"><div class="rem-grid"><table><thead><tr><th>Verba</th>';
+  gd.yms.forEach(function (ym) { h += '<th>' + REM_MESES[ym % 100 - 1] + '</th>'; });
+  h += '<th>Total</th></tr></thead><tbody>';
+  var grupo = null;
+  var nomes = { P: 'Proventos', D: 'Descontos', I: 'Informações (não somam)' };
+  gd.linhas.forEach(function (l) {
+    if (l.t !== grupo) { grupo = l.t; h += '<tr class="g"><td colspan="14">' + nomes[l.t] + '</td></tr>'; }
+    h += '<tr><td>' + escMeta(l.d) + '</td>';
+    gd.yms.forEach(function (ym) {
+      var v = l.v[ym];
+      h += (v === undefined || v === 0) ? '<td class="z">·</td>' : '<td class="' + (l.t === 'D' ? 'neg' : (l.t === 'P' ? 'pos' : '')) + '" title="' + remBRL2(v) + '">' + remNum0(v) + '</td>';
+    });
+    h += '<td class="tt">' + (l.t === 'I' ? '—' : remNum0(l.soma)) + '</td></tr>';
+  });
+  function linhaTot(rot, obj, cls) {
+    var soma = 0;
+    var r = '<tr class="tot ' + cls + '"><td>' + rot + '</td>';
+    gd.yms.forEach(function (ym) {
+      var v = obj[ym];
+      if (v === undefined) { r += '<td class="z">·</td>'; return; }
+      soma += v;
+      r += '<td title="' + remBRL2(v) + '">' + remNum0(v) + '</td>';
+    });
+    return r + '<td class="tt">' + remNum0(soma) + '</td></tr>';
+  }
+  h += '<tr class="g"><td colspan="14">Totais</td></tr>';
+  h += linhaTot('Total proventos', gd.tot.tp, '');
+  h += linhaTot('Total descontos', gd.tot.td, '');
+  h += linhaTot('Líquido recebido', gd.tot.li, 'liq');
+  h += linhaTot('Bruto sem duplicar adiant.', gd.tot.br, '');
+  h += '</tbody></table></div></div>';
+  h += '<div class="card-sub" style="padding:0 4px;">Quando há adiantamento (férias, 13º, PLR, quinzena), os proventos da grade mostram o valor nos dois pagamentos; a última linha corrige isso para o bruto real. Meses sem dados aparecem com "·". Os nomes das verbas vêm de cada fonte (a planilha agrupa; o holerite detalha).</div>';
+  return h;
+}
+
+function remBaixarCsv() {
+  var c = remCalc();
+  var ano = REM_STATE.anoSel;
+  var gd = remGradeDados(c, ano);
+  function n(v) { return (v === undefined ? '' : String(Math.round(v * 100) / 100).replace('.', ',')); }
+  var linhas = [['Verba', 'Tipo'].concat(gd.yms.map(function (ym) { return REM_MESES[ym % 100 - 1]; })).concat(['Total'])];
+  var nomes = { P: 'Provento', D: 'Desconto', I: 'Informação' };
+  gd.linhas.forEach(function (l) {
+    linhas.push([l.d, nomes[l.t]].concat(gd.yms.map(function (ym) { return n(l.v[ym]); })).concat([l.t === 'I' ? '' : n(l.soma)]));
+  });
+  [['Total proventos', gd.tot.tp], ['Total descontos', gd.tot.td], ['Líquido recebido', gd.tot.li], ['Bruto sem duplicar adiantamentos', gd.tot.br]].forEach(function (t) {
+    var soma = 0;
+    gd.yms.forEach(function (ym) { if (t[1][ym] !== undefined) soma += t[1][ym]; });
+    linhas.push([t[0], 'Total'].concat(gd.yms.map(function (ym) { return n(t[1][ym]); })).concat([n(soma)]));
+  });
+  var csv = '\ufeff' + linhas.map(function (r) { return r.map(function (x) { return '"' + String(x).replace(/"/g, '""') + '"'; }).join(';'); }).join('\r\n');
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'remuneracao-' + ano + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 500);
+}
+
+function remHtmlDetalheMes(c) {
   if (!REM_STATE.ymSel || !c.ag.meses[REM_STATE.ymSel]) REM_STATE.ymSel = c.last;
   var m = c.ag.meses[REM_STATE.ymSel];
   var h = '<div class="card"><div class="label" style="margin-top:0;">Mês</div><select class="input" onchange="remSelMes(this.value)">';
