@@ -381,6 +381,35 @@ body { background:var(--bg); }
 .seg button + button { border-left:1px solid var(--border); }
 .seg button.on { background:var(--primary); color:#fff; }
 
+
+/* Remuneração */
+:root { --rem0:#6B7280; --rem1:#2F7DD1; --rem2:#D99A2B; --rem3:#2D8A5F; --rem4:#8E5BD0; --rem5:#C2563C; }
+:root[data-theme="dark"] { --rem0:#A1A1AA; --rem1:#5BA0E8; --rem2:#E8B04A; --rem3:#4CB383; --rem4:#B08AE6; --rem5:#E07B62; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --rem0:#A1A1AA; --rem1:#5BA0E8; --rem2:#E8B04A; --rem3:#4CB383; --rem4:#B08AE6; --rem5:#E07B62; } }
+#remWrap .pos { color:var(--receita); }
+#remWrap .neg { color:var(--despesa); }
+.rem-seg { display:flex; width:100%; margin-bottom:12px; }
+.rem-seg button { flex:1; padding:9px 4px; font-size:12px; white-space:nowrap; }
+.rem-sw { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+.rem-msg { border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:12px; }
+.rem-msg.ok { background:var(--receita-l); color:var(--receita); }
+.rem-msg.err { background:var(--despesa-l); color:var(--despesa); }
+.rem-aviso { background:var(--bg); border-radius:8px; padding:8px 10px; font-size:12px; color:var(--muted); margin:6px 0 10px; }
+.rem-aviso.warn { color:var(--despesa); }
+.rem-gr { font-size:10.5px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--muted); margin:12px 0 4px; }
+.rem-it { display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:5px 0; border-bottom:1px solid var(--border); }
+.rem-it span:first-child { min-width:0; overflow-wrap:anywhere; }
+.rem-it span:last-child { white-space:nowrap; font-variant-numeric:tabular-nums; font-weight:600; }
+.rem-tot { font-weight:700; border-bottom:0; }
+.rem-tab .rem-th, .rem-tab .rem-tr { display:grid; grid-template-columns:0.9fr 1.1fr 1.3fr 1.1fr; gap:6px; align-items:baseline; font-size:12.5px; padding:7px 0; border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
+.rem-tab .rem-th { font-size:10.5px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--muted); }
+.rem-tab small { display:block; font-size:10.5px; color:var(--muted); }
+.rem-tab small.pos { color:var(--receita); } .rem-tab small.neg { color:var(--despesa); }
+.rem-marco.sug { border-style:dashed; }
+.rem-num { width:26px; height:26px; border-radius:50%; background:#52525B; color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none; }
+.rem-delta { font-size:14px; margin-bottom:4px; font-variant-numeric:tabular-nums; }
+.rem-nota { font-size:12.5px; color:var(--muted); line-height:1.45; }
+
 /* Gráficos SVG */
 .chart { position:relative; width:100%; }
 .chart svg { display:block; width:100%; height:auto; overflow:visible; }
@@ -474,6 +503,7 @@ body { background:var(--bg); }
     <div class="tab" data-tab="fluxo" onclick="mudarTab('fluxo')">📊 Fluxo</div>
     <div class="tab" data-tab="recorrentes" onclick="mudarTab('recorrentes')">🔮 Recorrentes</div>
     <div class="tab" data-tab="relatorios" onclick="mudarTab('relatorios')">📈 Relatórios</div>
+    <div class="tab" data-tab="remuneracao" onclick="mudarTab('remuneracao')">💼 Remuneração</div>
   </div>
 
   <!-- ===== ABA: LANÇAR ===== -->
@@ -535,6 +565,11 @@ body { background:var(--bg); }
   <!-- ===== ABA: RELATÓRIOS / PAINEL ===== -->
   <div id="sec-relatorios" class="sec">
     <div id="relatWrap"></div>
+  </div>
+
+  <!-- ===== ABA: REMUNERAÇÃO ===== -->
+  <div id="sec-remuneracao" class="sec">
+    <div id="remWrap"></div>
   </div>
 
 </div>
@@ -902,12 +937,15 @@ function mudarTab(nome) {
   if (nome === 'relatorios') {
     renderRelatoriosTab();
   }
+  if (nome === 'remuneracao') {
+    remIniciar();
+  }
   if (nome === 'recorrentes' && !RECORRENTES_STATE.iniciado) {
     RECORRENTES_STATE.iniciado = true;
     renderRecorrentesTab();
   }
 }
-var APP_VERSAO = '2026-11-14.2';
+var APP_VERSAO = '2026-11-17.1';
 window.mudarTab = mudarTab;
 (function () { var r = document.getElementById('rodapeVersao'); if (r) r.textContent = 'Finanças Familiar · versão ' + APP_VERSAO; })();
 
@@ -5834,6 +5872,1143 @@ function ligarTooltipSvg(id) {
     }
   });
 }
+
+/* REM-CORE-BEGIN */
+/* ==================================================================== */
+/* ==================== REMUNERAÇÃO: NÚCLEO (parsers + cálculos) ======= */
+/* ==================================================================== */
+var REM_MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+var REM_MESES_NOME = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+var REM_TIPOS = {
+  salario: { n: 'Salário', c: 0 },
+  '13o': { n: '13º salário', c: 1 },
+  ferias: { n: 'Férias', c: 2 },
+  plr: { n: 'PLR / PPR / abono', c: 3 },
+  bonus: { n: 'Bônus', c: 4 },
+  adiant: { n: 'Adiantamento', c: 0 },
+  ajuste: { n: 'Acerto / diferença', c: 5 },
+  outro: { n: 'Outros', c: 5 }
+};
+var REM_COMP = ['salario', '13o', 'ferias', 'plr', 'bonus', 'outro'];
+var REM_MARCO_TIPOS = {
+  aumento: { n: 'Aumento / mérito', i: '📈' },
+  dissidio: { n: 'Dissídio / reajuste', i: '🏛️' },
+  promocao: { n: 'Promoção', i: '⭐' },
+  emprego: { n: 'Mudança de emprego', i: '🔁' },
+  reducao: { n: 'Redução', i: '📉' },
+  outro: { n: 'Outro', i: '📌' }
+};
+
+function remNum(s) {
+  var n = parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+function remEhNum(s) { return /^-?\d{1,3}(\.\d{3})*,\d{2}$/.test(s) || /^-?\d+,\d{2}$/.test(s); }
+function remNorm(s) { return String(s === null || s === undefined ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim(); }
+function remR2(v) { return Math.round(v * 100) / 100; }
+function remMediana(a) {
+  if (!a.length) return 0;
+  var s = a.slice().sort(function (x, y) { return x - y; });
+  var m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function remYmAdd(ym, n) {
+  var t = Math.floor(ym / 100) * 12 + (ym % 100 - 1) + n;
+  return Math.floor(t / 12) * 100 + (t % 12) + 1;
+}
+function remYmDiff(a, b) { return (Math.floor(b / 100) - Math.floor(a / 100)) * 12 + (b % 100 - a % 100); }
+function remYmLabel(ym) { return REM_MESES[ym % 100 - 1].charAt(0).toUpperCase() + REM_MESES[ym % 100 - 1].slice(1) + '/' + Math.floor(ym / 100); }
+function remYmLabelCurto(ym) { return REM_MESES[ym % 100 - 1] + '/' + String(Math.floor(ym / 100)).slice(2); }
+function remYmISO(ym) { return Math.floor(ym / 100) + '-' + ('0' + (ym % 100)).slice(-2); }
+function remISOYm(iso) { var p = String(iso).split('-'); return parseInt(p[0], 10) * 100 + parseInt(p[1], 10); }
+function remBRL0(v) { return (v < 0 ? '-' : '') + 'R$ ' + Math.abs(Math.round(v)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+function remBRL2(v) {
+  var s = Math.abs(v).toFixed(2).split('.');
+  return (v < 0 ? '-' : '') + 'R$ ' + s[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + s[1];
+}
+
+/* ---------- agrupar itens do pdf.js em linhas ---------- */
+function remLinhas(itens, tol) {
+  tol = tol || 3;
+  var its = itens.filter(function (i) { return String(i.str).replace(/\s+/g, '') !== ''; }).slice().sort(function (a, b) { return (b.y - a.y) || (a.x - b.x); });
+  var linhas = [];
+  its.forEach(function (it) {
+    var l = linhas[linhas.length - 1];
+    if (l && Math.abs(l.y - it.y) <= tol) l.it.push(it);
+    else linhas.push({ y: it.y, it: [it] });
+  });
+  linhas.forEach(function (l) {
+    l.it.sort(function (a, b) { return a.x - b.x; });
+    l.txt = l.it.map(function (i) { return i.str; }).join(' ');
+  });
+  return linhas;
+}
+function remAchaLinha(linhas, re, de) {
+  for (var i = de || 0; i < linhas.length; i++) if (re.test(linhas[i].txt)) return i;
+  return -1;
+}
+function remNumerosDaLinha(l) {
+  return l.it.filter(function (i) { return remEhNum(i.str); });
+}
+function remEmpresaNome(txt) {
+  if (/conectcar/i.test(txt)) return 'ConectCar';
+  if (/ita[uú]/i.test(txt)) return 'Itaú Unibanco';
+  var w = txt.replace(/\b(S\.?A\.?|LTDA)\b.*/i, '').trim().split(/\s+/).slice(0, 2).join(' ');
+  return w.toLowerCase().replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); });
+}
+function remSlug(s) { return remNorm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
+
+function remDataBR(s) {
+  var m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(s || '');
+  return m ? { iso: m[3] + '-' + m[2] + '-' + m[1], br: m[0], ym: parseInt(m[3], 10) * 100 + parseInt(m[2], 10) } : null;
+}
+
+/* ---------- holerite: tabela (comum aos dois layouts) ---------- */
+/* cols: {qtd, prov, desc} = x inicial de cada coluna; linhas já agrupadas */
+function remLerTabela(linhas, ini, fim, cols) {
+  var itens = [];
+  for (var i = ini; i < fim; i++) {
+    var l = linhas[i];
+    var desc = [];
+    var nums = [];
+    l.it.forEach(function (it) {
+      var s = it.str.trim();
+      if (remEhNum(s) || (/^\d+$/.test(s) && it.x > cols.qtd - 40)) nums.push(it);
+      else desc.push(s);
+    });
+    if (!desc.length || !nums.length) continue;
+    var d = desc.join(' ').replace(/\s+/g, ' ').trim();
+    nums.forEach(function (n) {
+      var r = n.x + (n.w || 0);
+      if (r < cols.qtdFim) return; /* quantidade (dias/horas) */
+      itens.push({ d: d, t: r < cols.desc ? 'P' : 'D', v: remR2(remNum(n.str)), c: null });
+    });
+  }
+  return itens;
+}
+
+/* Layout "Recibo de Pagamento" (ConectCar) */
+function remParseRecibo(itens) {
+  var L = remLinhas(itens, 3);
+  var regDt = null;
+  itens.forEach(function (i) { if (!regDt && /^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\/\d{4}$/i.test(i.str.trim())) regDt = i; });
+  if (!regDt) return null;
+  var mm = /^(\w{3})\/(\d{4})$/.exec(regDt.str.trim().toLowerCase());
+  var ym = parseInt(mm[2], 10) * 100 + REM_MESES.indexOf(mm[1]) + 1;
+  var folha = itens.filter(function (i) { return Math.abs(i.y - regDt.y) <= 3 && i.x > regDt.x + (regDt.w || 0) - 1; })
+    .sort(function (a, b) { return a.x - b.x; }).map(function (i) { return i.str.trim(); });
+  if (folha.length && /^\d+$/.test(folha[folha.length - 1])) folha.pop();
+  folha = folha.join(' ').replace(/\s+/g, ' ').trim();
+  var iTit = remAchaLinha(L, /Recibo de Pagamento/i);
+  var emp = '';
+  if (iTit >= 0 && L[iTit + 1]) {
+    emp = L[iTit + 1].txt;
+    if (L[iTit + 2] && /^DE\s/i.test(L[iTit + 2].txt)) emp += ' ' + L[iTit + 2].txt;
+  }
+  var cargo = '';
+  var iCar = remAchaLinha(L, /Cargo Efetivo/i);
+  if (iCar >= 0 && L[iCar + 1]) {
+    cargo = L[iCar + 1].it.map(function (i) { return i.str.trim(); }).filter(function (s) { return !/^\d+$/.test(s) && !/^(Mensal|Horista|Quinzenal|Semanal|Diarista)$/i.test(s); }).join(' ');
+  }
+  var adm = null, sc = 0;
+  var iAdm = remAchaLinha(L, /Data de Admiss/i);
+  if (iAdm >= 0 && L[iAdm + 1]) {
+    adm = remDataBR(L[iAdm + 1].txt);
+    var ns = remNumerosDaLinha(L[iAdm + 1]);
+    if (ns.length) sc = remNum(ns[ns.length - 1].str);
+  }
+  var iCab = remAchaLinha(L, /Descri/);
+  var iTot = remAchaLinha(L, /Total de proventos/i);
+  if (iCab < 0 || iTot < 0) return null;
+  var cab = L[iCab].it;
+  var xq = null, xp = null, xd = null;
+  cab.forEach(function (i) {
+    var s = i.str.trim();
+    if (/^Qtde/i.test(s)) xq = i;
+    else if (/^Provento/i.test(s)) xp = i;
+    else if (/^Desconto/i.test(s)) xd = i;
+  });
+  if (!xp || !xd) return null;
+  var cols = { qtd: xq ? xq.x : xp.x - 100, qtdFim: xp.x, desc: xd.x };
+  var itensTab = remLerTabela(L, iCab + 1, iTot, cols);
+  var totais = L[iTot + 1] ? remNumerosDaLinha(L[iTot + 1]) : [];
+  var tp = totais.length > 0 ? remNum(totais[0].str) : 0;
+  var td = totais.length > 1 ? remNum(totais[1].str) : 0;
+  var li = totais.length > 2 ? remNum(totais[2].str) : remR2(tp - td);
+  var iBase = remAchaLinha(L, /Sal\.\s*contrib/i);
+  if (iBase >= 0 && L[iBase + 1]) {
+    var bs = remNumerosDaLinha(L[iBase + 1]).map(function (n) { return remNum(n.str); });
+    var nomes = ['Base INSS', 'Base FGTS', 'FGTS do mês', 'Base IRRF'];
+    bs.forEach(function (v, k) { if (nomes[k] && v) itensTab.push({ d: nomes[k], t: 'I', v: remR2(v), c: null }); });
+  }
+  var f = remNorm(folha);
+  var tipo = 'outro', rot = folha;
+  if (/adiantamento.*13|13.*salario/.test(f)) { tipo = '13o'; rot = 'Adiantamento de 13º'; }
+  else if (/adiantamento/.test(f)) { tipo = 'adiant'; rot = 'Adiantamento quinzenal'; }
+  else if (/ferias/.test(f)) { tipo = 'ferias'; rot = 'Férias'; }
+  else if (/mensal/.test(f)) { tipo = 'salario'; rot = 'Salário mensal'; }
+  return { ym: ym, tipo: tipo, rot: rot, emp: remEmpresaNome(emp), cargo: cargo, adm: adm, sc: sc, tp: remR2(tp), td: remR2(td), li: remR2(li), itens: itensTab };
+}
+
+/* Layout "Demonstrativo de Pagamento" (Itaú) */
+function remParseDemonstrativo(itens) {
+  var L = remLinhas(itens, 3);
+  var vig = null;
+  itens.forEach(function (i) { if (!vig && /^\d{2}\/\d{4}$/.test(i.str.trim())) vig = i.str.trim(); });
+  if (!vig) return null;
+  var ym = parseInt(vig.slice(3), 10) * 100 + parseInt(vig.slice(0, 2), 10);
+  var texto = L.map(function (l) { return l.txt; }).join(' ');
+  var emp = /ITAU UNIBANCO/i.test(texto) ? 'Itaú Unibanco' : '';
+  if (!emp) { var iT = remAchaLinha(L, /Demonstrativo de Pagamento/i); if (iT >= 0 && L[iT + 1]) emp = remEmpresaNome(L[iT + 1].txt.replace(/Vig[êe]ncia.*/i, '')); }
+  var adm = null, sc = 0;
+  var iAdm = remAchaLinha(L, /Dt Admiss/i);
+  if (iAdm >= 0 && L[iAdm + 1]) {
+    adm = remDataBR(L[iAdm + 1].txt);
+    var ns = remNumerosDaLinha(L[iAdm + 1]);
+    if (ns.length) sc = remNum(ns[0].str);
+  }
+  var cargo = '';
+  var iCar = remAchaLinha(L, /Departamento/i);
+  if (iCar >= 0 && L[iCar + 1]) {
+    var xc = null, xb = null;
+    L[iCar].it.forEach(function (i) { var s = i.str.trim(); if (/^Cargo/i.test(s)) xc = i.x; if (/^Banco/i.test(s)) xb = i.x; });
+    if (xc !== null) {
+      cargo = L[iCar + 1].it.filter(function (i) { return i.x >= xc - 3 && (xb === null || i.x < xb - 3); }).map(function (i) { return i.str.trim(); }).join(' ');
+    }
+  }
+  var iCab = remAchaLinha(L, /C[óo]digo/);
+  var iTot = remAchaLinha(L, /Total Proventos/i);
+  if (iCab < 0 || iTot < 0) return null;
+  var xb2 = null, xu = null, xp = null, xd = null;
+  L[iCab].it.forEach(function (i) {
+    var s = i.str.trim();
+    if (/^Base/i.test(s)) xb2 = i;
+    else if (/^Unid/i.test(s)) xu = i;
+    else if (/^Proventos/i.test(s)) xp = i;
+    else if (/^Descontos/i.test(s)) xd = i;
+  });
+  if (!xp || !xd || !xu) return null;
+  var cols = { qtd: xb2 ? xb2.x : 0, qtdFim: xu.x, prov: xp.x, desc: xd.x };
+  /* nesta tabela: r < xu.x = base (informativo); xu.x <= r < xp.x = unidade (ignorar); xp.x <= r < xd.x = provento */
+  var tab = [];
+  for (var i = iCab + 1; i < iTot; i++) {
+    var l = L[i];
+    var codigo = null, desc = [], nums = [];
+    l.it.forEach(function (it) {
+      var s = it.str.trim();
+      if (/^\d{6}$/.test(s) && it.x < 90) codigo = s;
+      else if (remEhNum(s)) nums.push(it);
+      else desc.push(s);
+    });
+    if (!codigo || !desc.length) continue;
+    var d = desc.join(' ').replace(/\s+/g, ' ').trim();
+    nums.forEach(function (n) {
+      var r = n.x + (n.w || 0);
+      var v = remR2(remNum(n.str));
+      if (r < xu.x) tab.push({ d: d, t: 'I', v: v, c: codigo });
+      else if (r < xp.x) { /* unidade (dias/horas): ignora */ }
+      else if (r < xd.x) tab.push({ d: d, t: 'P', v: v, c: codigo });
+      else tab.push({ d: d, t: 'D', v: v, c: codigo });
+    });
+  }
+  var totais = L[iTot + 1] ? remNumerosDaLinha(L[iTot + 1]) : [];
+  var tp = totais.length > 0 ? remNum(totais[0].str) : 0;
+  var td = totais.length > 1 ? remNum(totais[1].str) : 0;
+  var iLiq = remAchaLinha(L, /Pagamento L[ií]quido/i);
+  var li = remR2(tp - td);
+  if (iLiq >= 0) {
+    var nl = remNumerosDaLinha(L[iLiq]);
+    if (!nl.length && L[iLiq + 1]) nl = remNumerosDaLinha(L[iLiq + 1]);
+    if (nl.length) li = remNum(nl[nl.length - 1].str);
+  }
+  var descs = tab.filter(function (x) { return x.t === 'P'; }).map(function (x) { return remNorm(x.d); }).join(' | ');
+  var tipo = 'outro', rot = 'Outros';
+  if (/ferias/.test(descs)) { tipo = 'ferias'; rot = 'Férias'; }
+  else if (/^salario|\| salario|salario base/.test(descs)) { tipo = 'salario'; rot = 'Salário mensal'; }
+  else if (/13/.test(descs)) { tipo = '13o'; rot = '13º salário'; }
+  else if (/plr|result|ppr/.test(descs)) { tipo = 'plr'; rot = 'PLR / participação nos resultados'; }
+  return { ym: ym, tipo: tipo, rot: rot, emp: emp, cargo: cargo, adm: adm, sc: tipo === 'salario' ? sc : 0, tp: remR2(tp), td: remR2(td), li: remR2(li), itens: tab };
+}
+
+/* paginas: [[{str,x,y,w}, ...], ...] -> lista de registros */
+function remParseHolerites(paginas, nomeArq) {
+  var out = [];
+  paginas.forEach(function (itens) {
+    var txt = itens.map(function (i) { return i.str; }).join(' ');
+    var r = null;
+    if (/Recibo de Pagamento/i.test(txt)) r = remParseRecibo(itens);
+    else if (/Demonstrativo de Pagamento/i.test(txt)) r = remParseDemonstrativo(itens);
+    if (!r) return;
+    var sp = 0, sd = 0;
+    r.itens.forEach(function (x) { if (x.t === 'P') sp += x.v; else if (x.t === 'D') sd += x.v; });
+    r.ok = Math.abs(sp - r.tp) < 0.06 && Math.abs(sd - r.td) < 0.06 && Math.abs((r.tp - r.td) - r.li) < 0.06;
+    r.fonte = 'holerite';
+    r.arq = nomeArq || '';
+    r.itens = r.itens.map(function (x) { var o = { d: x.d, t: x.t, v: x.v }; return o; });
+    var base = 'h-' + remSlug(r.emp) + '-' + r.ym + '-' + r.tipo;
+    var id = base, n = 2;
+    while (out.some(function (o) { return o.id === id; })) { id = base + '-' + n; n++; }
+    r.id = id;
+    out.push(r);
+  });
+  return out;
+}
+
+/* ---------- planilha (aba Receita) ---------- */
+var REM_COLS = [
+  ['bruto', 'Bruto (salário base)', 'P', /^bruto$/],
+  ['aux', 'Auxílios', 'P', /^auxilios?$/],
+  ['inss', 'INSS', 'D', /^inss$/],
+  ['irpf', 'IRPF', 'D', /^irpf$|^ir$/],
+  ['outros', 'Outros descontos / adiantamentos', 'D', /^outros descontos/],
+  ['sind', 'Contribuição sindical', 'D', /^contribuicao sindical/],
+  ['prev', 'Previdência privada', 'D', /^itauprev|^previdencia/],
+  ['saude', 'Plano de saúde', 'D', /^saude$/],
+  ['copart', 'Coparticipação', 'D', /^co ?participacao/],
+  ['seguro', 'Seguro de vida', 'D', /^seguro/],
+  ['assist', 'Contribuição assistencial', 'D', /^contrib(uicao)? assistencial/],
+  ['va', 'Vale alimentação (benefício)', 'I', /^vale alimentacao/],
+  ['adiant', 'Adiantamento (quinzena)', 'I', /^adiantamento/]
+];
+
+function remTipoDoRotulo(lab) {
+  var l = remNorm(lab);
+  if (/^acerto|dif/.test(l.replace(/^[a-z]+[\s\-]+/, '')) || /^acerto/.test(l)) return 'ajuste';
+  if (/ferias/.test(l)) return 'ferias';
+  if (/13/.test(l)) return '13o';
+  if (/bonus/.test(l)) return 'bonus';
+  if (/plr|ppr|abono|-pl\b|\bpl\b/.test(l.replace(/^[a-z]+/, ''))) return 'plr';
+  return 'salario';
+}
+
+/* wb: objeto XLSX; devolve {regs, info} */
+function remParsePlanilha(XL, wb) {
+  var nome = null;
+  wb.SheetNames.forEach(function (n) { if (!nome && remNorm(n) === 'receita') nome = n; });
+  if (!nome) throw new Error('Não encontrei a aba "Receita" nessa planilha.');
+  var rows = XL.utils.sheet_to_json(wb.Sheets[nome], { header: 1, raw: true, defval: null });
+  var hdr = -1;
+  for (var h = 0; h < Math.min(8, rows.length); h++) {
+    var ok = false;
+    for (var c = 0; c < 19; c++) if (rows[h][c] !== null && remNorm(rows[h][c]) === 'bruto') ok = true;
+    if (ok) { hdr = h; break; }
+  }
+  if (hdr < 0) throw new Error('Não achei a linha de cabeçalho (coluna "Bruto") na aba Receita.');
+  var colIdx = {};
+  for (var cc = 0; cc < 19; cc++) {
+    var nn = remNorm(rows[hdr][cc]);
+    if (!nn) continue;
+    REM_COLS.forEach(function (d) { if (colIdx[d[0]] === undefined && d[3].test(nn)) colIdx[d[0]] = cc; });
+  }
+  colIdx.liquido = undefined;
+  for (var c3 = 0; c3 < 19; c3++) if (remNorm(rows[hdr][c3]) === 'liquido') { colIdx.liquido = c3; break; }
+  if (colIdx.bruto === undefined || colIdx.liquido === undefined) throw new Error('A aba Receita não tem as colunas Bruto e Líquido esperadas.');
+  var y = null, prev = null, out = [], iniciou = false;
+  for (var i = hdr + 1; i < rows.length; i++) {
+    var r = rows[i];
+    if (r[0] !== null && /^\d{4}$/.test(String(r[0]).trim())) y = parseInt(r[0], 10);
+    var lab = (typeof r[1] === 'string') ? r[1].trim() : null;
+    if (!lab) {
+      if (iniciou && (r[colIdx.bruto] === null || r[colIdx.bruto] === undefined)) break;
+      continue;
+    }
+    var ln = remNorm(lab);
+    var mi = REM_MESES_NOME.indexOf(ln.split(/[\s\-]+/)[0]);
+    var ym = null;
+    if (mi >= 0 && y) ym = y * 100 + mi + 1;
+    else if (/^acerto/.test(ln) && prev) ym = prev;
+    iniciou = true;
+    if (ym) prev = ym;
+    var reg = {};
+    REM_COLS.forEach(function (d) {
+      var v = colIdx[d[0]] !== undefined ? r[colIdx[d[0]]] : null;
+      reg[d[0]] = (typeof v === 'number') ? v : 0;
+    });
+    reg.li = (typeof r[colIdx.liquido] === 'number') ? r[colIdx.liquido] : 0;
+    out.push({ lab: lab, ln: ln, ym: ym, r: reg, linha: i + 1 });
+  }
+  for (var k = out.length - 1, nx = null; k >= 0; k--) { if (out[k].ym) nx = out[k].ym; else out[k].ym = nx; }
+  out = out.filter(function (o) { return o.ym; });
+  /* projeções: 1ª linha idêntica à mesma linha de 12 meses antes (nos últimos 18 meses) */
+  var maxYm = 0;
+  out.forEach(function (o) { if (o.ym > maxYm) maxYm = o.ym; });
+  var corte = null;
+  for (var a = 0; a < out.length && !corte; a++) {
+    var o = out[a];
+    if (remYmDiff(o.ym, maxYm) > 18) continue;
+    for (var b = 0; b < out.length; b++) {
+      var p = out[b];
+      if (p.ym === remYmAdd(o.ym, -12) && p.ln === o.ln && p.r.bruto === o.r.bruto && p.r.li === o.r.li && o.r.bruto) { corte = o.ym; break; }
+    }
+  }
+  var regs = [];
+  var seq = {};
+  out.forEach(function (o) {
+    var tp = o.r.bruto + o.r.aux;
+    if (!tp && !o.r.li) return;
+    var itens = [];
+    var td = 0;
+    REM_COLS.forEach(function (d) {
+      var v = o.r[d[0]];
+      if (!v) return;
+      itens.push({ d: d[1], t: d[2], v: remR2(v) });
+      if (d[2] === 'D') td += v;
+    });
+    seq[o.ym] = (seq[o.ym] || 0) + 1;
+    var tipo = remTipoDoRotulo(o.lab);
+    var regular = REM_MESES_NOME.indexOf(o.ln) >= 0;
+    var rg = { id: 'p-' + o.ym + '-' + seq[o.ym], ym: o.ym, rot: o.lab, tipo: tipo, fonte: 'planilha', emp: '', tp: remR2(tp), td: remR2(td), li: remR2(o.r.li), itens: itens, ok: true };
+    if (regular && tipo === 'salario' && o.r.bruto) rg.bs = remR2(o.r.bruto);
+    regs.push(rg);
+  });
+  var min = 999999, max = 0;
+  regs.forEach(function (g) { if (g.ym < min) min = g.ym; if (g.ym > max) max = g.ym; });
+  return { regs: regs, info: { corte: corte, min: min, max: max, aba: nome } };
+}
+
+/* ---------- agregações ---------- */
+/* planilha cede lugar ao holerite no mesmo mês */
+function remEfetivos(regs) {
+  var comH = {};
+  regs.forEach(function (g) { if (g.fonte === 'holerite') comH[g.ym] = true; });
+  return regs.filter(function (g) { return g.fonte === 'holerite' || !comH[g.ym]; });
+}
+
+/* registros que são adiantamento de algo pago depois (não somar o bruto 2x) */
+function remAntecipados(regs) {
+  var ant = {};
+  regs.forEach(function (a) {
+    if (a.tipo === 'adiant') { ant[a.id] = true; return; }
+    if (a.tipo !== 'ferias' && a.tipo !== '13o' && a.tipo !== 'plr') return;
+    var alvos = [a.tp, a.li].filter(function (v) { return v > 0; });
+    regs.forEach(function (b) {
+      if (b === a || ant[a.id]) return;
+      var dm = remYmDiff(a.ym, b.ym);
+      if (dm < 0 || dm > 14) return;
+      b.itens.forEach(function (it) {
+        if (it.t !== 'D' || it.v <= 0) return;
+        alvos.forEach(function (al) { if (Math.abs(it.v - al) / al < 0.02) ant[a.id] = true; });
+      });
+    });
+  });
+  return ant;
+}
+
+function remCompItem(desc, tipo) {
+  var d = remNorm(desc);
+  if (/bonus/.test(d)) return 'bonus';
+  if (/plr|result|ppr/.test(d)) return 'plr';
+  if (/ferias/.test(d)) return 'ferias';
+  if (/13/.test(d)) return '13o';
+  if (tipo === 'plr') return 'plr';
+  if (/auxilio|ajuda|creche|baba|vale|refeic|alimenta/.test(d)) return 'outro';
+  return remComp(tipo);
+}
+function remComp(tipo) { return REM_COMP.indexOf(tipo) >= 0 ? tipo : 'outro'; }
+
+function remAgregarMeses(regs) {
+  var ef = remEfetivos(regs);
+  var ant = remAntecipados(ef);
+  var meses = {};
+  ef.forEach(function (g) {
+    var m = meses[g.ym];
+    if (!m) { m = meses[g.ym] = { ym: g.ym, bruto: 0, liq: 0, desc: 0, comp: {}, regs: [] }; REM_COMP.forEach(function (c) { m.comp[c] = 0; }); }
+    m.regs.push(g);
+    m.liq += g.li;
+    if (!ant[g.id]) {
+      m.bruto += g.tp;
+      m.desc += g.td;
+      if (g.fonte === 'holerite') {
+        g.itens.forEach(function (it) { if (it.t === 'P') m.comp[remCompItem(it.d, g.tipo)] += it.v; });
+      } else {
+        m.comp[remComp(g.tipo)] += g.tp;
+      }
+    }
+  });
+  return { meses: meses, ant: ant };
+}
+
+/* pontos do salário-base: [{ym, v, src}] */
+function remPontosBase(regs) {
+  var ef = remEfetivos(regs);
+  var pts = {};
+  ef.forEach(function (g) {
+    if (g.fonte === 'holerite' && g.tipo === 'salario' && g.sc) pts[g.ym] = { ym: g.ym, v: g.sc, src: 'h' };
+  });
+  ef.forEach(function (g) {
+    if (g.fonte === 'planilha' && g.bs && !pts[g.ym]) pts[g.ym] = { ym: g.ym, v: g.bs, src: 's' };
+  });
+  return Object.keys(pts).map(Number).sort(function (a, b) { return a - b; }).map(function (k) { return pts[k]; });
+}
+
+/* patamares (níveis) do salário-base */
+function remNiveis(pts) {
+  var cands = [];
+  pts.forEach(function (p) {
+    if (p.src === 'h') return;
+    var c = null;
+    cands.forEach(function (x) { if (!c && Math.abs(p.v - x.ref) / x.ref < 0.005) c = x; });
+    if (c) c.n++; else cands.push({ ref: p.v, n: 1 });
+  });
+  var seq = [];
+  pts.forEach(function (p) {
+    if (p.src === 'h') { seq.push({ ym: p.ym, v: p.v, key: 'h' + p.ym, h: true }); return; }
+    var c = null;
+    cands.forEach(function (x) { if (!c && Math.abs(p.v - x.ref) / x.ref < 0.005 && x.n >= 3) c = x; });
+    if (c) seq.push({ ym: p.ym, v: p.v, key: 'c' + c.ref });
+  });
+  var runs = [];
+  seq.forEach(function (s) {
+    var l = runs[runs.length - 1];
+    if (l && l.key === s.key && !s.h) { l.last = s.ym; l.vals.push(s.v); }
+    else runs.push({ key: s.key, first: s.ym, last: s.ym, vals: [s.v], h: !!s.h });
+  });
+  var fim = runs.length - 1;
+  runs = runs.filter(function (r, k) { return r.vals.length >= 2 || r.h || k === fim; });
+  var niveis = [];
+  runs.forEach(function (r) {
+    var v = remMediana(r.vals);
+    var l = niveis[niveis.length - 1];
+    if (l && Math.abs(v - l.v) / l.v < 0.012 && !(r.h && !l.h)) { l.last = r.last; l.vals = l.vals.concat(r.vals); l.v = remMediana(l.vals); }
+    else niveis.push({ first: r.first, last: r.last, vals: r.vals.slice(), v: v, h: r.h });
+  });
+  niveis.forEach(function (n) { delete n.vals; });
+  return niveis;
+}
+
+/* nível por mês (carry-forward) de ymIni a ymFim */
+function remNivelPorMes(niveis, ymIni, ymFim) {
+  var out = {};
+  var k = 0, atual = niveis.length ? niveis[0].v : 0;
+  for (var ym = ymIni; ym <= ymFim; ym = remYmAdd(ym, 1)) {
+    while (k < niveis.length && niveis[k].first <= ym) { atual = niveis[k].v; k++; }
+    out[ym] = (niveis.length && niveis[0].first <= ym) ? atual : (niveis.length ? niveis[0].v : 0);
+  }
+  return out;
+}
+
+/* marcos sugeridos a partir dos níveis; mantém os do usuário/confirmados */
+function remDetectarMarcos(regs, marcosAtuais, ignorados) {
+  ignorados = ignorados || [];
+  var pts = remPontosBase(regs);
+  var niveis = remNiveis(pts);
+  var mantidos = (marcosAtuais || []).filter(function (m) { return !m.auto || m.conf; });
+  var novos = [];
+  /* mudanças de emprego a partir dos holerites (data de admissão) */
+  remEfetivos(regs).forEach(function (g) {
+    if (g.fonte !== 'holerite' || !g.adm || !g.emp) return;
+    var id = 'e-' + remSlug(g.emp) + '-' + g.adm.ym;
+    if (ignorados.indexOf(id) >= 0 || mantidos.some(function (m) { return m.id === id; })) return;
+    if (novos.some(function (m) { return m.id === id; })) return;
+    novos.push({ id: id, ym: g.adm.ym, tipo: 'emprego', titulo: 'Admissão — ' + g.emp, nota: 'Admissão em ' + g.adm.br + (g.cargo ? ' · cargo no holerite: ' + g.cargo : '') + (g.sc ? ' · salário contratual ' + remBRL2(g.sc) : ''), auto: true, conf: false });
+  });
+  /* linhas "Acerto ..." da planilha (ex.: Acerto BMG) = provável troca de empresa */
+  regs.forEach(function (g) {
+    if (g.fonte !== 'planilha' || !/^acerto/i.test(g.rot)) return;
+    var id = 'x-' + g.id;
+    if (ignorados.indexOf(id) >= 0 || mantidos.some(function (m) { return m.id === id; })) return;
+    novos.push({ id: id, ym: g.ym, tipo: 'emprego', titulo: g.rot + ' (troca de empresa?)', nota: 'Linha "' + g.rot + '" da planilha: ' + remBRL0(g.li) + ' líquidos. Confirme se marca uma saída/transferência de empresa.', auto: true, conf: false });
+  });
+  var empregos = mantidos.concat(novos).filter(function (m) { return m.tipo === 'emprego'; });
+  for (var k = 1; k < niveis.length; k++) {
+    var a = niveis[k - 1], b = niveis[k];
+    var d = b.v / a.v - 1;
+    var ym = b.first;
+    if (empregos.some(function (m) { var dm = remYmDiff(m.ym, ym); return dm >= 0 && dm <= 1; })) continue;
+    if (mantidos.some(function (m) { return Math.abs(remYmDiff(m.ym, ym)) <= 1; }) || novos.some(function (m) { return m.ym === ym; })) continue;
+    var tipo = d < 0 ? 'reducao' : (d >= 0.085 ? 'promocao' : 'dissidio');
+    var pc = (d * 100).toFixed(1).replace('.', ',');
+    var titulo = d < 0 ? 'Redução de ' + pc.replace('-', '') + '%' : (tipo === 'promocao' ? 'Aumento de +' + pc + '% (promoção/mérito?)' : 'Reajuste de +' + pc + '% (dissídio?)');
+    var nota = 'Sugerido pela evolução do salário-base: ' + remBRL0(a.v) + ' → ' + remBRL0(b.v) + '. Confirme o motivo.';
+    var gap = remYmDiff(a.last, b.first);
+    var inter = pts.filter(function (p) { return p.ym > a.last && p.ym < b.first; });
+    if (inter.length && gap <= 6) nota += ' Meses intermediários: ' + inter.slice(0, 5).map(function (p) { return remYmLabelCurto(p.ym) + ' ' + remBRL0(p.v); }).join(', ') + '.';
+    if (gap > 6) nota += ' Entre ' + remYmLabel(a.last) + ' e ' + remYmLabel(b.first) + ' o bruto variou mês a mês (sem patamar fixo); a mudança pode ter ocorrido antes.';
+    if (ignorados.indexOf('a-' + ym) >= 0) continue;
+    novos.push({ id: 'a-' + ym, ym: ym, tipo: tipo, titulo: titulo, nota: nota, auto: true, conf: false });
+  }
+  var todos = mantidos.concat(novos);
+  todos.sort(function (x, y) { return x.ym - y.ym; });
+  return { marcos: todos, niveis: niveis, pts: pts };
+}
+/* REM-CORE-END */
+
+/* REM-UI-BEGIN */
+/* ==================================================================== */
+/* ==================== REMUNERAÇÃO: TELA ============================== */
+/* ==================================================================== */
+var REM_STATE = {
+  iniciado: false, carregando: false, carregado: false, erro: null,
+  reg: [], marcos: [], ign: [], atualizadoEm: null,
+  vista: 'evolucao', faixa: 'tudo', ymSel: null, pend: null, editMarco: null,
+  msg: '', msgTipo: '', salvando: false, calc: null
+};
+
+function remRefDoc() {
+  var fb = window._fb;
+  return fb.doc(fb.db, 'familias', FAMILIA_ID, 'configuracoes', 'remuneracao');
+}
+
+function remIniciar() {
+  if (REM_STATE.iniciado) { remRender(); return; }
+  REM_STATE.iniciado = true;
+  remRender();
+  remCarregar();
+}
+
+function remCarregar() {
+  var fb = window._fb;
+  if (!fb) { REM_STATE.erro = 'Firebase ainda não carregou. Troque de aba e volte.'; REM_STATE.iniciado = false; remRender(); return; }
+  REM_STATE.carregando = true;
+  fb.getDoc(remRefDoc()).then(function (snap) {
+    if (snap.exists()) {
+      var d = snap.data();
+      REM_STATE.reg = d.registros || [];
+      REM_STATE.marcos = d.marcos || [];
+      REM_STATE.ign = d.ignorados || [];
+      REM_STATE.atualizadoEm = d.atualizadoEm || null;
+    }
+    REM_STATE.carregado = true;
+    REM_STATE.carregando = false;
+    REM_STATE.calc = null;
+    if (!REM_STATE.reg.length) REM_STATE.vista = 'importar';
+    remRender();
+  }).catch(function (e) {
+    REM_STATE.carregando = false;
+    REM_STATE.iniciado = false;
+    REM_STATE.erro = 'Não consegui ler os dados de remuneração: ' + e.message;
+    remRender();
+  });
+}
+
+function remSalvar() {
+  var fb = window._fb;
+  REM_STATE.salvando = true;
+  REM_STATE.calc = null;
+  var doc = JSON.parse(JSON.stringify({ registros: REM_STATE.reg, marcos: REM_STATE.marcos, ignorados: REM_STATE.ign, atualizadoEm: new Date().toISOString() }));
+  return fb.setDoc(remRefDoc(), doc).then(function () {
+    REM_STATE.salvando = false;
+    REM_STATE.atualizadoEm = doc.atualizadoEm;
+    return true;
+  }).catch(function (e) {
+    REM_STATE.salvando = false;
+    var perm = e && (e.code === 'permission-denied' || /permission/i.test(e.message || ''));
+    remMsg(perm ? 'O Firestore bloqueou a gravação (regras de segurança). Me avise que eu te mando a regra para colar.' : 'Erro ao salvar: ' + e.message, 'err');
+    return false;
+  });
+}
+
+function remMsg(t, tipo) { REM_STATE.msg = t; REM_STATE.msgTipo = tipo || 'ok'; remRender(); }
+
+/* ---------- cálculos memorizados ---------- */
+function remCalc() {
+  if (REM_STATE.calc) return REM_STATE.calc;
+  var regs = REM_STATE.reg;
+  var ag = remAgregarMeses(regs);
+  var yms = Object.keys(ag.meses).map(Number).sort(function (a, b) { return a - b; });
+  var pts = remPontosBase(regs);
+  var niveis = remNiveis(pts);
+  var ptMap = {};
+  pts.forEach(function (p) { ptMap[p.ym] = p; });
+  var c = { ag: ag, yms: yms, pts: pts, ptMap: ptMap, niveis: niveis, nm: {}, first: yms[0], last: yms[yms.length - 1], iniBase: pts.length ? pts[0].ym : yms[0] };
+  if (yms.length && niveis.length) c.nm = remNivelPorMes(niveis, c.iniBase, c.last);
+  REM_STATE.calc = c;
+  return c;
+}
+
+function remMarcoValores(m, c) {
+  var antes = c.nm[remYmAdd(m.ym, -1)] || null;
+  var depois = c.nm[m.ym] || null;
+  if (m.tipo === 'emprego') {
+    for (var k = 0; k < 4; k++) { var p = c.ptMap[remYmAdd(m.ym, k)]; if (p) { depois = p.v; break; } }
+  }
+  return { antes: antes, depois: depois };
+}
+
+/* ---------- navegação ---------- */
+function remVista(v) { REM_STATE.vista = v; REM_STATE.editMarco = null; remRender(); }
+function remFaixa(f) { REM_STATE.faixa = f; remRender(); }
+function remSelMes(v) { REM_STATE.ymSel = parseInt(v, 10); remRender(); }
+
+function remRender() {
+  var w = document.getElementById('remWrap');
+  if (!w) return;
+  var h = '';
+  if (REM_STATE.erro) {
+    w.innerHTML = '<div class="empty-state"><div class="ic">⚠️</div>' + escMeta(REM_STATE.erro) + '</div>';
+    return;
+  }
+  if (!REM_STATE.carregado) {
+    w.innerHTML = '<div class="empty-state"><div class="ic">⏳</div>Carregando...</div>';
+    return;
+  }
+  var vs = [['evolucao', '📈 Evolução'], ['detalhe', '🧾 Detalhe'], ['marcos', '🚩 Marcos'], ['importar', '⬆️ Importar']];
+  h += '<div class="seg rem-seg">';
+  vs.forEach(function (v) { h += '<button class="' + (REM_STATE.vista === v[0] ? 'on' : '') + '" onclick="remVista(\'' + v[0] + '\')">' + v[1] + '</button>'; });
+  h += '</div>';
+  if (REM_STATE.msg) h += '<div class="rem-msg ' + (REM_STATE.msgTipo === 'err' ? 'err' : 'ok') + '">' + escMeta(REM_STATE.msg) + '</div>';
+  if (REM_STATE.vista !== 'importar' && !REM_STATE.reg.length) {
+    h += '<div class="empty-state"><div class="ic">💼</div>Ainda não há dados de remuneração.<br>Vá em <b>Importar</b> e envie a planilha e os holerites.</div>';
+  } else if (REM_STATE.vista === 'evolucao') h += remHtmlEvolucao();
+  else if (REM_STATE.vista === 'detalhe') h += remHtmlDetalhe();
+  else if (REM_STATE.vista === 'marcos') h += remHtmlMarcos();
+  else h += remHtmlImportar();
+  w.innerHTML = h;
+  ligarTooltipSvg('remChartBase');
+  ligarTooltipSvg('remChartAno');
+}
+
+/* ---------- EVOLUÇÃO ---------- */
+function remHtmlEvolucao() {
+  var c = remCalc();
+  if (!c.yms.length) return '<div class="empty-state">Sem dados.</div>';
+  var h = '';
+  var lastN = c.niveis.length ? c.niveis[c.niveis.length - 1] : null;
+  var firstN = c.niveis.length ? c.niveis[0] : null;
+  var s12b = 0, s12l = 0;
+  for (var k = 0; k < 12; k++) { var m = c.ag.meses[remYmAdd(c.last, -k)]; if (m) { s12b += m.bruto; s12l += m.liq; } }
+  h += '<div class="kpis">';
+  if (lastN) {
+    h += '<div class="kpi"><div class="lab">Salário-base atual</div><div class="val">' + remBRL0(lastN.v) + '</div><div class="sub">bruto · desde ' + remYmLabel(lastN.first) + '</div></div>';
+    var mult = firstN && firstN.v ? lastN.v / firstN.v : 0;
+    h += '<div class="kpi"><div class="lab">Evolução do salário-base</div><div class="val pos">' + (mult ? mult.toFixed(1).replace('.', ',') + '×' : '—') + '</div><div class="sub">de ' + remBRL0(firstN.v) + ' em ' + remYmLabel(firstN.first) + '</div></div>';
+  }
+  h += '<div class="kpi"><div class="lab">Bruto em 12 meses</div><div class="val">' + remBRL0(s12b) + '</div><div class="sub">até ' + remYmLabel(c.last) + ' · média ' + remBRL0(s12b / 12) + '/mês</div></div>';
+  h += '<div class="kpi"><div class="lab">Líquido em 12 meses</div><div class="val">' + remBRL0(s12l) + '</div><div class="sub">média ' + remBRL0(s12l / 12) + '/mês</div></div>';
+  h += '</div>';
+
+  /* gráfico salário-base */
+  var fx = [['tudo', 'Tudo'], ['10a', '10 anos'], ['5a', '5 anos'], ['3a', '3 anos'], ['12m', '12 meses']];
+  h += '<div class="card"><div class="card-title">Salário-base mensal (bruto)</div><div class="card-sub">Linha = patamar do salário; pontinhos = bruto de cada mês regular; marcadores numerados = marcos de mudança.</div>';
+  h += '<div class="seg" style="margin-bottom:10px;">';
+  fx.forEach(function (f) { h += '<button class="' + (REM_STATE.faixa === f[0] ? 'on' : '') + '" onclick="remFaixa(\'' + f[0] + '\')">' + f[1] + '</button>'; });
+  h += '</div>';
+  h += '<div class="chart" id="remChartBase">' + remSvgBase(c) + '<div class="tip"></div></div>';
+  h += '</div>';
+
+  /* composição por ano */
+  h += '<div class="card"><div class="card-title">Remuneração bruta por ano</div><div class="card-sub">Separada por tipo de pagamento. Adiantamentos já descontados depois não entram em duplicidade.</div>';
+  h += '<div class="legend">';
+  REM_COMP.forEach(function (cp, i) { h += '<span><i class="rem-sw" style="background:var(--rem' + REM_TIPOS[cp].c + ')"></i>' + REM_TIPOS[cp].n + '</span>'; });
+  h += '</div>';
+  h += '<div class="chart" id="remChartAno">' + remSvgAnos(c) + '<div class="tip"></div></div>';
+  h += '</div>';
+
+  /* tabela por ano */
+  var anos = remTotaisAno(c);
+  h += '<div class="card"><div class="card-title">Ano a ano</div><div class="card-sub">Salário-base ao fim do ano, bruto e líquido recebidos.</div>';
+  h += '<div class="rem-tab"><div class="rem-th"><span>Ano</span><span>Base (fim)</span><span>Bruto</span><span>Líquido</span></div>';
+  anos.slice().reverse().forEach(function (a) {
+    var dl = a.varBruto === null ? '' : '<small class="' + (a.varBruto >= 0 ? 'pos' : 'neg') + '">' + (a.varBruto >= 0 ? '+' : '') + (a.varBruto * 100).toFixed(0) + '%</small>';
+    h += '<div class="rem-tr"><span><b>' + a.ano + '</b>' + (a.parcial ? '<small>até ' + REM_MESES[c.last % 100 - 1] + '</small>' : '') + '</span><span>' + (a.base ? remBRL0(a.base) : '—') + '</span><span>' + remBRL0(a.bruto) + dl + '</span><span>' + remBRL0(a.liq) + '</span></div>';
+  });
+  h += '</div></div>';
+  h += '<div class="card-sub" style="padding:0 4px;">Dica: os valores brutos da planilha incluem tudo que foi lançado na coluna "Bruto" (salário, comissão, férias, 13º, PLR). Para meses com holerite, valem os itens do holerite.</div>';
+  return h;
+}
+
+function remTotaisAno(c) {
+  var out = [];
+  var a0 = Math.floor(c.first / 100), a1 = Math.floor(c.last / 100);
+  var prev = null;
+  for (var a = a0; a <= a1; a++) {
+    var t = { ano: a, bruto: 0, liq: 0, comp: {}, base: 0, parcial: a === a1 && c.last % 100 < 12, varBruto: null };
+    REM_COMP.forEach(function (cp) { t.comp[cp] = 0; });
+    for (var mth = 1; mth <= 12; mth++) {
+      var ym = a * 100 + mth;
+      var m = c.ag.meses[ym];
+      if (m) { t.bruto += m.bruto; t.liq += m.liq; REM_COMP.forEach(function (cp) { t.comp[cp] += m.comp[cp]; }); }
+      if (c.nm[ym]) t.base = c.nm[ym];
+    }
+    if (prev && prev.bruto > 0 && !t.parcial) t.varBruto = t.bruto / prev.bruto - 1;
+    out.push(t);
+    prev = t;
+  }
+  return out;
+}
+
+function remSvgBase(c) {
+  var n = { tudo: 99999, '10a': 120, '5a': 60, '3a': 36, '12m': 12 }[REM_STATE.faixa] || 99999;
+  var yms = [];
+  for (var ym = c.iniBase; ym <= c.last; ym = remYmAdd(ym, 1)) yms.push(ym);
+  if (yms.length > n) yms = yms.slice(yms.length - n);
+  if (yms.length < 2) return '<div class="empty-state" style="padding:20px;">Poucos meses para desenhar.</div>';
+  var W = 640, H = 262, ml = 46, mr = 14, mt = 38, mb = 26;
+  var pw = W - ml - mr, ph = H - mt - mb;
+  var maxV = 0;
+  yms.forEach(function (m) { var v = c.nm[m] || 0; if (v > maxV) maxV = v; });
+  var ymax = relatNiceMax(maxV * 1.1);
+  function X(i) { return ml + pw * i / (yms.length - 1); }
+  function Y(v) { return mt + ph - ph * Math.min(v, ymax) / ymax; }
+  var idx = {};
+  yms.forEach(function (m, i) { idx[m] = i; });
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Evolução do salário-base">';
+  for (var g = 0; g <= 4; g++) {
+    var gv = ymax * g / 4;
+    s += '<line class="grid" x1="' + ml + '" x2="' + (W - mr) + '" y1="' + Y(gv).toFixed(1) + '" y2="' + Y(gv).toFixed(1) + '"/>';
+    s += '<text x="' + (ml - 6) + '" y="' + (Y(gv) + 4).toFixed(1) + '" text-anchor="end">' + relatFmtK(gv) + '</text>';
+  }
+  /* rótulos do eixo x */
+  yms.forEach(function (m, i) {
+    var mes = m % 100, ano = Math.floor(m / 100);
+    var mostra = false, txt = '';
+    if (yms.length <= 30) { if (mes % 3 === 1) { mostra = true; txt = remYmLabelCurto(m); } }
+    else { var passo = yms.length > 130 ? 2 : 1; if (mes === 1 && ano % passo === 0) { mostra = true; txt = String(ano); } }
+    if (mostra) s += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + txt + '</text>';
+  });
+  /* tooltips por mês */
+  var passoX = pw / (yms.length - 1);
+  var marcosPorYm = {};
+  REM_STATE.marcos.forEach(function (m) { (marcosPorYm[m.ym] = marcosPorYm[m.ym] || []).push(m); });
+  yms.forEach(function (m, i) {
+    var tip = '<b>' + remYmLabel(m) + '</b><div class="r"><span>Salário-base</span><span>' + remBRL0(c.nm[m] || 0) + '</span></div>';
+    var p = c.ptMap[m];
+    if (p) tip += '<div class="r"><span>' + (p.src === 'h' ? 'Salário contratual' : 'Bruto do mês') + '</span><span>' + remBRL0(p.v) + '</span></div>';
+    var mm = c.ag.meses[m];
+    if (mm) tip += '<div class="r"><span>Bruto total do mês</span><span>' + remBRL0(mm.bruto) + '</span></div>';
+    (marcosPorYm[m] || []).forEach(function (mk) { tip += '<div style="margin-top:4px;">🚩 ' + escMeta(mk.titulo) + '</div>'; });
+    s += '<rect class="hit" x="' + (X(i) - passoX / 2).toFixed(1) + '" y="' + mt + '" width="' + passoX.toFixed(1) + '" height="' + ph + '" data-tip="' + relatEsc(tip) + '"/>';
+  });
+  /* pontos mensais */
+  yms.forEach(function (m, i) {
+    var p = c.ptMap[m];
+    var nv = c.nm[m];
+    if (!p || !nv) return;
+    if (p.v < nv * 0.6 || p.v > nv * 1.35) return;
+    s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(p.v).toFixed(1) + '" r="2" fill="var(--muted)" opacity="0.45" style="pointer-events:none"/>';
+  });
+  /* degraus */
+  var pts = [];
+  yms.forEach(function (m, i) {
+    var v = c.nm[m] || 0;
+    if (i > 0 && (c.nm[yms[i - 1]] || 0) !== v) { pts.push(X(i).toFixed(1) + ',' + Y(c.nm[yms[i - 1]] || 0).toFixed(1)); }
+    pts.push(X(i).toFixed(1) + ',' + Y(v).toFixed(1));
+  });
+  s += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--primary-d)" stroke-width="2.4" stroke-linejoin="round" style="pointer-events:none"/>';
+  /* marcos */
+  var marcos = remMarcosOrdenados();
+  marcos.forEach(function (mk, k) {
+    var i = idx[mk.ym];
+    if (i === undefined) return;
+    var x = X(i);
+    var cy = 12 + (k % 2) * 15;
+    var tip = '<b>🚩 ' + (k + 1) + ' · ' + escMeta(mk.titulo) + '</b><div>' + remYmLabel(mk.ym) + '</div>';
+    s += '<line x1="' + x.toFixed(1) + '" x2="' + x.toFixed(1) + '" y1="' + (cy + 8) + '" y2="' + (mt + ph) + '" stroke="var(--primary-d)" stroke-width="1" stroke-dasharray="3 3" opacity="0.55" style="pointer-events:none"/>';
+    s += '<circle cx="' + x.toFixed(1) + '" cy="' + cy + '" r="8" fill="' + (mk.tipo === 'emprego' ? '#2D6A4F' : '#52525B') + '" stroke="var(--card)" stroke-width="1.5" data-tip="' + relatEsc(tip) + '" style="cursor:pointer"/>';
+    s += '<text x="' + x.toFixed(1) + '" y="' + (cy + 3.5) + '" text-anchor="middle" style="fill:#fff;font-size:9.5px;font-weight:700;pointer-events:none">' + (k + 1) + '</text>';
+  });
+  s += '</svg>';
+  return s;
+}
+
+function remMarcosOrdenados() {
+  return REM_STATE.marcos.slice().sort(function (a, b) { return a.ym - b.ym; });
+}
+
+function remSvgAnos(c) {
+  var anos = remTotaisAno(c);
+  var W = 640, H = 250, ml = 46, mr = 10, mt = 20, mb = 26;
+  var pw = W - ml - mr, ph = H - mt - mb;
+  var maxT = 0;
+  anos.forEach(function (a) { if (a.bruto > maxT) maxT = a.bruto; });
+  var ymax = relatNiceMax(maxT * 1.1);
+  var slot = pw / anos.length;
+  var bw = Math.min(40, slot * 0.64);
+  function Y(v) { return mt + ph - ph * v / ymax; }
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Remuneração bruta por ano">';
+  for (var g = 0; g <= 4; g++) {
+    var gv = ymax * g / 4;
+    s += '<line class="grid" x1="' + ml + '" x2="' + (W - mr) + '" y1="' + Y(gv).toFixed(1) + '" y2="' + Y(gv).toFixed(1) + '"/>';
+    s += '<text x="' + (ml - 6) + '" y="' + (Y(gv) + 4).toFixed(1) + '" text-anchor="end">' + relatFmtK(gv) + '</text>';
+  }
+  anos.forEach(function (a, i) {
+    var x = ml + slot * i + (slot - bw) / 2;
+    var acc = 0;
+    REM_COMP.forEach(function (cp) {
+      var v = a.comp[cp];
+      if (v <= 0) return;
+      var y1 = Y(acc + v), y0 = Y(acc);
+      s += '<rect x="' + x.toFixed(1) + '" y="' + y1.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0.5, y0 - y1).toFixed(1) + '" fill="var(--rem' + REM_TIPOS[cp].c + ')" style="pointer-events:none"/>';
+      acc += v;
+    });
+    var tip = '<b>' + a.ano + (a.parcial ? ' (até ' + REM_MESES[c.last % 100 - 1] + ')' : '') + '</b>';
+    REM_COMP.forEach(function (cp) { if (a.comp[cp] > 0) tip += '<div class="r"><span>' + REM_TIPOS[cp].n + '</span><span>' + remBRL0(a.comp[cp]) + '</span></div>'; });
+    tip += '<div class="r" style="margin-top:3px;"><span><b>Bruto</b></span><span><b>' + remBRL0(a.bruto) + '</b></span></div><div class="r"><span>Líquido</span><span>' + remBRL0(a.liq) + '</span></div>';
+    s += '<rect class="hit" x="' + (ml + slot * i).toFixed(1) + '" y="' + mt + '" width="' + slot.toFixed(1) + '" height="' + ph + '" data-tip="' + relatEsc(tip) + '"/>';
+    s += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (Y(a.bruto) - 4).toFixed(1) + '" text-anchor="middle" class="lbl-val" style="font-size:9.5px;">' + relatFmtK(a.bruto) + '</text>';
+    s += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + (anos.length > 12 ? String(a.ano).slice(2) : a.ano) + '</text>';
+  });
+  s += '</svg>';
+  return s;
+}
+
+/* ---------- DETALHE ---------- */
+function remHtmlDetalhe() {
+  var c = remCalc();
+  if (!c.yms.length) return '<div class="empty-state">Sem dados.</div>';
+  if (!REM_STATE.ymSel || !c.ag.meses[REM_STATE.ymSel]) REM_STATE.ymSel = c.last;
+  var m = c.ag.meses[REM_STATE.ymSel];
+  var h = '<div class="card"><div class="label" style="margin-top:0;">Mês</div><select class="input" onchange="remSelMes(this.value)">';
+  c.yms.slice().reverse().forEach(function (ym) {
+    var mm = c.ag.meses[ym];
+    h += '<option value="' + ym + '"' + (ym === REM_STATE.ymSel ? ' selected' : '') + '>' + remYmLabel(ym) + ' — bruto ' + remBRL0(mm.bruto) + (mm.regs.some(function (g) { return g.fonte === 'holerite'; }) ? ' · holerite' : '') + '</option>';
+  });
+  h += '</select>';
+  h += '<div class="kpis k3" style="margin:12px 0 0;"><div class="kpi"><div class="lab">Bruto</div><div class="val">' + remBRL0(m.bruto) + '</div></div><div class="kpi"><div class="lab">Descontos</div><div class="val neg">' + remBRL0(m.desc) + '</div></div><div class="kpi"><div class="lab">Líquido</div><div class="val pos">' + remBRL0(m.liq) + '</div></div></div>';
+  var pm = c.ag.meses[remYmAdd(REM_STATE.ymSel, -1)];
+  if (pm && pm.liq > 0) {
+    var dv = m.liq / pm.liq - 1;
+    h += '<div class="card-sub" style="margin:8px 0 0;">Líquido vs. ' + remYmLabel(pm.ym) + ': <b class="' + (dv >= 0 ? 'pos' : 'neg') + '">' + (dv >= 0 ? '+' : '') + (dv * 100).toFixed(0) + '%</b> (inclui pagamentos extras do mês)</div>';
+  }
+  h += '</div>';
+  var ordem = { salario: 0, adiant: 1, '13o': 2, ferias: 3, plr: 4, bonus: 5, ajuste: 6, outro: 7 };
+  m.regs.slice().sort(function (a, b) { return (ordem[a.tipo] || 9) - (ordem[b.tipo] || 9); }).forEach(function (g) {
+    var antec = c.ag.ant[g.id];
+    h += '<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><div><div class="card-title">' + escMeta(g.rot) + '</div><div class="card-sub" style="margin-bottom:8px;">' + escMeta(REM_TIPOS[g.tipo] ? REM_TIPOS[g.tipo].n : g.tipo) + (g.emp ? ' · ' + escMeta(g.emp) : '') + ' · ' + (g.fonte === 'holerite' ? '🧾 holerite' : '📊 planilha') + '</div></div>';
+    if (g.fonte === 'holerite') h += '<button class="pill pill-sub" onclick="remExcluirReg(\'' + escMeta(g.id) + '\')" title="Remover este holerite">🗑</button>';
+    h += '</div>';
+    if (antec) h += '<div class="rem-aviso">Adiantamento: o bruto não soma aqui para não contar duas vezes (ele entra no pagamento em que o adiantamento é descontado). O valor recebido conta no líquido do mês.</div>';
+    if (g.fonte === 'holerite' && g.sc) h += '<div class="rem-aviso" style="background:var(--bg);">Salário contratual: <b>' + remBRL2(g.sc) + '</b>' + (g.cargo ? ' · ' + escMeta(g.cargo) : '') + '</div>';
+    [['P', 'Proventos'], ['D', 'Descontos'], ['I', 'Informações']].forEach(function (gr) {
+      var its = g.itens.filter(function (x) { return x.t === gr[0]; });
+      if (!its.length) return;
+      h += '<div class="rem-gr">' + gr[1] + '</div>';
+      its.forEach(function (x) { h += '<div class="rem-it"><span>' + escMeta(x.d) + '</span><span class="' + (gr[0] === 'D' ? 'neg' : (gr[0] === 'P' ? 'pos' : '')) + '">' + remBRL2(x.v) + '</span></div>'; });
+    });
+    h += '<div class="rem-it rem-tot"><span>Total proventos / descontos</span><span>' + remBRL2(g.tp) + ' / ' + remBRL2(g.td) + '</span></div>';
+    h += '<div class="rem-it rem-tot"><span>Líquido</span><span class="pos">' + remBRL2(g.li) + '</span></div>';
+    if (g.ok === false) h += '<div class="rem-aviso warn">⚠️ A soma dos itens lidos não bate com os totais do documento. Confira o PDF.</div>';
+    h += '</div>';
+  });
+  return h;
+}
+
+function remExcluirReg(id) {
+  if (!confirm('Remover este holerite dos dados de remuneração?')) return;
+  REM_STATE.reg = REM_STATE.reg.filter(function (g) { return g.id !== id; });
+  remSalvar().then(function (ok) { if (ok) remMsg('Holerite removido.', 'ok'); else remRender(); });
+}
+
+/* ---------- MARCOS ---------- */
+function remHtmlMarcos() {
+  var c = remCalc();
+  var h = '<div class="card"><div class="card-title">Marcos de mudança salarial</div><div class="card-sub">Aumentos, dissídios, promoções e trocas de emprego. Os marcos 🔎 sugeridos foram detectados pela evolução do salário; confirme ou ajuste o motivo.</div>';
+  h += '<div class="btn-row" style="margin-top:0;"><button class="btn btn-primary" onclick="remNovoMarco()">+ Novo marco</button><button class="btn btn-ghost" onclick="remRedetectar()">🔄 Redetectar sugestões</button></div></div>';
+  if (REM_STATE.editMarco) h += remHtmlFormMarco();
+  var marcos = remMarcosOrdenados();
+  if (!marcos.length) h += '<div class="empty-state"><div class="ic">🚩</div>Nenhum marco ainda.</div>';
+  var numeros = {};
+  marcos.forEach(function (m, i) { numeros[m.id] = i + 1; });
+  marcos.slice().reverse().forEach(function (m) {
+    var t = REM_MARCO_TIPOS[m.tipo] || REM_MARCO_TIPOS.outro;
+    var v = c.yms.length ? remMarcoValores(m, c) : { antes: null, depois: null };
+    var sug = m.auto && !m.conf;
+    h += '<div class="card rem-marco' + (sug ? ' sug' : '') + '"><div style="display:flex;gap:10px;align-items:flex-start;"><div class="rem-num">' + numeros[m.id] + '</div><div style="flex:1;min-width:0;">';
+    h += '<div class="card-title">' + t.i + ' ' + escMeta(m.titulo) + '</div>';
+    h += '<div class="card-sub" style="margin-bottom:6px;">' + remYmLabel(m.ym) + ' · ' + escMeta(t.n) + ' · ' + (sug ? '🔎 sugerido' : '✅ confirmado') + '</div>';
+    if (v.antes && v.depois && v.antes !== v.depois) {
+      var d = v.depois / v.antes - 1;
+      h += '<div class="rem-delta">' + remBRL0(v.antes) + ' → <b>' + remBRL0(v.depois) + '</b> <span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + (d >= 0 ? '+' : '') + (d * 100).toFixed(1).replace('.', ',') + '%</span></div>';
+    }
+    if (m.nota) h += '<div class="rem-nota">' + escMeta(m.nota) + '</div>';
+    h += '<div class="btn-row" style="margin-top:10px;">';
+    if (sug) h += '<button class="btn btn-ghost" onclick="remConfirmarMarco(\'' + escMeta(m.id) + '\')">✅ Confirmar</button>';
+    h += '<button class="btn btn-ghost" onclick="remEditarMarco(\'' + escMeta(m.id) + '\')">✏️ Editar</button><button class="btn btn-ghost" onclick="remExcluirMarco(\'' + escMeta(m.id) + '\')">🗑</button></div>';
+    h += '</div></div></div>';
+  });
+  return h;
+}
+
+function remHtmlFormMarco() {
+  var e = REM_STATE.editMarco;
+  var h = '<div class="card"><div class="card-title">' + (e.id ? 'Editar marco' : 'Novo marco') + '</div>';
+  h += '<div class="label">Mês</div><input type="month" class="input" id="remFmYm" value="' + escMeta(e.ym ? remYmISO(e.ym) : '') + '">';
+  h += '<div class="label">Tipo</div><select class="input" id="remFmTipo">';
+  Object.keys(REM_MARCO_TIPOS).forEach(function (k) { h += '<option value="' + k + '"' + (e.tipo === k ? ' selected' : '') + '>' + REM_MARCO_TIPOS[k].i + ' ' + REM_MARCO_TIPOS[k].n + '</option>'; });
+  h += '</select>';
+  h += '<div class="label">Título</div><input type="text" class="input" id="remFmTitulo" value="' + escMeta(e.titulo || '') + '" placeholder="Ex.: Promoção a Superintendente">';
+  h += '<div class="label">Observação</div><textarea class="input" id="remFmNota" placeholder="Detalhes, cargo, motivo...">' + escMeta(e.nota || '') + '</textarea>';
+  h += '<div class="btn-row"><button class="btn btn-primary" onclick="remSalvarMarco()">Salvar</button><button class="btn btn-ghost" onclick="remCancelarMarco()">Cancelar</button></div></div>';
+  return h;
+}
+
+function remNovoMarco() { REM_STATE.editMarco = { id: null, ym: remCalc().last || null, tipo: 'aumento', titulo: '', nota: '' }; remRender(); }
+function remEditarMarco(id) {
+  var m = REM_STATE.marcos.filter(function (x) { return x.id === id; })[0];
+  if (!m) return;
+  REM_STATE.editMarco = { id: m.id, ym: m.ym, tipo: m.tipo, titulo: m.titulo, nota: m.nota || '' };
+  remRender();
+}
+function remCancelarMarco() { REM_STATE.editMarco = null; remRender(); }
+function remSalvarMarco() {
+  var e = REM_STATE.editMarco;
+  var ymv = document.getElementById('remFmYm').value;
+  var titulo = document.getElementById('remFmTitulo').value.trim();
+  if (!ymv || !titulo) { alert('Informe o mês e o título.'); return; }
+  var dados = { ym: remISOYm(ymv), tipo: document.getElementById('remFmTipo').value, titulo: titulo, nota: document.getElementById('remFmNota').value.trim() };
+  if (e.id) {
+    REM_STATE.marcos.forEach(function (m) { if (m.id === e.id) { m.ym = dados.ym; m.tipo = dados.tipo; m.titulo = dados.titulo; m.nota = dados.nota; m.conf = true; } });
+  } else {
+    REM_STATE.marcos.push({ id: 'u-' + Date.now(), ym: dados.ym, tipo: dados.tipo, titulo: dados.titulo, nota: dados.nota, auto: false, conf: true });
+  }
+  REM_STATE.editMarco = null;
+  remSalvar().then(function (ok) { if (ok) remMsg('Marco salvo.', 'ok'); else remRender(); });
+}
+function remConfirmarMarco(id) {
+  REM_STATE.marcos.forEach(function (m) { if (m.id === id) m.conf = true; });
+  remSalvar().then(function () { remRender(); });
+}
+function remExcluirMarco(id) {
+  if (!confirm('Excluir este marco?')) return;
+  var m = REM_STATE.marcos.filter(function (x) { return x.id === id; })[0];
+  if (m && m.auto && REM_STATE.ign.indexOf(id) < 0) REM_STATE.ign.push(id);
+  REM_STATE.marcos = REM_STATE.marcos.filter(function (x) { return x.id !== id; });
+  remSalvar().then(function () { remRender(); });
+}
+function remRedetectar() {
+  var det = remDetectarMarcos(REM_STATE.reg, REM_STATE.marcos, REM_STATE.ign);
+  REM_STATE.marcos = det.marcos;
+  remSalvar().then(function (ok) { if (ok) remMsg('Sugestões atualizadas. Os marcos confirmados foram mantidos.', 'ok'); else remRender(); });
+}
+
+/* ---------- IMPORTAR ---------- */
+function remHtmlImportar() {
+  var h = '';
+  var nP = REM_STATE.reg.filter(function (g) { return g.fonte === 'planilha'; }).length;
+  var nH = REM_STATE.reg.filter(function (g) { return g.fonte === 'holerite'; }).length;
+  h += '<div class="card"><div class="card-title">Importar dados de remuneração</div><div class="card-sub">Os dados ficam só na sua conta (Firestore), nunca no código do app. ' + (REM_STATE.reg.length ? 'Hoje: ' + nP + ' linhas da planilha e ' + nH + ' holerite(s).' : 'Comece pela planilha e depois envie os holerites.') + '</div>';
+  h += '<div class="btn-row" style="margin-top:0;"><button class="btn btn-primary" onclick="document.getElementById(\'remFilePlan\').click()">📊 Planilha (aba Receita)</button><button class="btn btn-primary" onclick="document.getElementById(\'remFilePdf\').click()">🧾 Holerites (PDF)</button></div>';
+  h += '<input type="file" id="remFilePlan" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="remArquivoPlanilha(this)">';
+  h += '<input type="file" id="remFilePdf" accept="application/pdf,.pdf" multiple style="display:none" onchange="remArquivoPdf(this)">';
+  h += '</div>';
+  var p = REM_STATE.pend;
+  if (p && p.tipo === 'lendo') h += '<div class="card"><div class="empty-state" style="padding:16px;"><div class="ic">⏳</div>Lendo arquivo...</div></div>';
+  if (p && p.tipo === 'planilha') {
+    var ate = p.ate;
+    var sel = p.regs.filter(function (g) { return g.ym <= ate; });
+    var yms = {};
+    p.regs.forEach(function (g) { yms[g.ym] = true; });
+    var lista = Object.keys(yms).map(Number).sort(function (a, b) { return b - a; });
+    h += '<div class="card"><div class="card-title">Conferir planilha</div><div class="card-sub">' + sel.length + ' lançamentos de ' + remYmLabel(sel.length ? sel[0].ym : p.info.min) + ' a ' + remYmLabel(ate) + '.</div>';
+    if (p.info.corte) h += '<div class="rem-aviso">A partir de ' + remYmLabel(p.info.corte) + ' as linhas são idênticas às do ano anterior (parecem projeção) e ficam de fora. Se algum desses meses é real, escolha abaixo.</div>';
+    h += '<div class="label">Importar até</div><select class="input" onchange="remPendAte(this.value)">';
+    lista.forEach(function (ym) { h += '<option value="' + ym + '"' + (ym === ate ? ' selected' : '') + '>' + remYmLabel(ym) + '</option>'; });
+    h += '</select>';
+    h += '<div class="card-sub" style="margin-top:8px;">Substitui as linhas de planilha já salvas. Holerites importados não são tocados e, nos meses que têm holerite, ele vale mais que a planilha.</div>';
+    h += '<div class="btn-row"><button class="btn btn-primary" onclick="remConfirmarImport()">Importar</button><button class="btn btn-ghost" onclick="remCancelarImport()">Cancelar</button></div></div>';
+  }
+  if (p && p.tipo === 'holerite') {
+    h += '<div class="card"><div class="card-title">Conferir holerites</div><div class="card-sub">' + p.regs.length + ' documento(s) lido(s).' + (p.falhas.length ? ' Não reconheci: ' + escMeta(p.falhas.join(', ')) + '.' : '') + '</div>';
+    p.regs.forEach(function (g) {
+      h += '<div class="rem-it"><span>' + (g.ok ? '✅' : '⚠️') + ' ' + escMeta(g.emp) + ' · ' + remYmLabel(g.ym) + ' · ' + escMeta(g.rot) + '</span><span>' + remBRL0(g.tp) + ' → ' + remBRL0(g.li) + '</span></div>';
+    });
+    h += '<div class="card-sub" style="margin-top:8px;">Valores: bruto → líquido. Se o mesmo holerite já existir, ele é substituído.</div>';
+    if (p.regs.length) h += '<div class="btn-row"><button class="btn btn-primary" onclick="remConfirmarImport()">Importar</button><button class="btn btn-ghost" onclick="remCancelarImport()">Cancelar</button></div>';
+    else h += '<div class="btn-row"><button class="btn btn-ghost" onclick="remCancelarImport()">Fechar</button></div>';
+    h += '</div>';
+  }
+  if (REM_STATE.reg.length) {
+    h += '<div class="card"><div class="card-title">Zona de risco</div><div class="card-sub">Apaga todos os registros e marcos de remuneração desta conta.</div><button class="btn btn-danger" onclick="remApagarTudo()">🗑 Apagar tudo</button></div>';
+  }
+  return h;
+}
+
+function remPendAte(v) { if (REM_STATE.pend) { REM_STATE.pend.ate = parseInt(v, 10); remRender(); } }
+function remCancelarImport() { REM_STATE.pend = null; remRender(); }
+
+function remArquivoPlanilha(inp) {
+  var f = inp.files && inp.files[0];
+  inp.value = '';
+  if (!f) return;
+  REM_STATE.msg = '';
+  REM_STATE.pend = { tipo: 'lendo' };
+  remRender();
+  f.arrayBuffer().then(function (buf) {
+    var wb = XLSX.read(buf, { type: 'array' });
+    var r = remParsePlanilha(XLSX, wb);
+    if (!r.regs.length) throw new Error('Nenhuma linha de remuneração encontrada na aba Receita.');
+    REM_STATE.pend = { tipo: 'planilha', regs: r.regs, info: r.info, ate: r.info.corte ? remYmAdd(r.info.corte, -1) : r.info.max };
+    remRender();
+  }).catch(function (e) {
+    REM_STATE.pend = null;
+    remMsg('Não consegui ler a planilha: ' + e.message, 'err');
+  });
+}
+
+function remPdfPaginas(buf) {
+  var pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+  if (!pdfjsLib) return Promise.reject(new Error('Biblioteca de leitura de PDF não carregou. Recarregue a página.'));
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.worker.min.js';
+  return pdfjsLib.getDocument({ data: buf }).promise.then(function (pdf) {
+    var ps = [];
+    for (var p = 1; p <= pdf.numPages; p++) {
+      ps.push(pdf.getPage(p).then(function (page) {
+        return page.getTextContent().then(function (tc) {
+          return tc.items.map(function (it) { return { str: it.str, x: it.transform[4], y: it.transform[5], w: it.width }; });
+        });
+      }));
+    }
+    return Promise.all(ps);
+  });
+}
+
+function remArquivoPdf(inp) {
+  var arqs = Array.prototype.slice.call(inp.files || []);
+  inp.value = '';
+  if (!arqs.length) return;
+  REM_STATE.msg = '';
+  REM_STATE.pend = { tipo: 'lendo' };
+  remRender();
+  var regs = [], falhas = [];
+  var cadeia = Promise.resolve();
+  arqs.forEach(function (f) {
+    cadeia = cadeia.then(function () {
+      return f.arrayBuffer().then(remPdfPaginas).then(function (pags) {
+        var r = remParseHolerites(pags, f.name);
+        if (!r.length) falhas.push(f.name);
+        r.forEach(function (g) {
+          var base = g.id, n = 2;
+          while (regs.some(function (o) { return o.id === g.id; })) { g.id = base + '-' + n; n++; }
+          regs.push(g);
+        });
+      }).catch(function () { falhas.push(f.name); });
+    });
+  });
+  cadeia.then(function () {
+    regs.sort(function (a, b) { return a.ym - b.ym; });
+    REM_STATE.pend = { tipo: 'holerite', regs: regs, falhas: falhas };
+    remRender();
+  });
+}
+
+function remConfirmarImport() {
+  var p = REM_STATE.pend;
+  if (!p) return;
+  if (p.tipo === 'planilha') {
+    var novos = p.regs.filter(function (g) { return g.ym <= p.ate; });
+    REM_STATE.reg = REM_STATE.reg.filter(function (g) { return g.fonte !== 'planilha'; }).concat(novos);
+  } else if (p.tipo === 'holerite') {
+    var ids = {};
+    p.regs.forEach(function (g) { ids[g.id] = true; });
+    REM_STATE.reg = REM_STATE.reg.filter(function (g) { return !ids[g.id]; }).concat(p.regs);
+  } else return;
+  var det = remDetectarMarcos(REM_STATE.reg, REM_STATE.marcos, REM_STATE.ign);
+  REM_STATE.marcos = det.marcos;
+  REM_STATE.pend = null;
+  REM_STATE.calc = null;
+  remSalvar().then(function (ok) {
+    if (ok) { REM_STATE.vista = 'evolucao'; REM_STATE.ymSel = null; remMsg('Importado e salvo. Confira os marcos sugeridos na aba 🚩 Marcos.', 'ok'); }
+    else remRender();
+  });
+}
+
+function remApagarTudo() {
+  if (!confirm('Apagar TODOS os dados de remuneração (registros e marcos)? Isso não pode ser desfeito.')) return;
+  REM_STATE.reg = []; REM_STATE.marcos = []; REM_STATE.ign = [];
+  remSalvar().then(function (ok) { REM_STATE.vista = 'importar'; if (ok) remMsg('Dados apagados.', 'ok'); else remRender(); });
+}
+/* REM-UI-END */
 
 /* ==================================================================== */
 /* ==================== FERRAMENTA: LANÇAMENTOS DUPLICADOS ============= */
